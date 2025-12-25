@@ -1,0 +1,44 @@
+name: Deploy to Google Apps Script
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install clasp
+        run: npm install -g @google/clasp
+
+      - name: Create clasprc.json
+        env:
+          CLASP_SECRET_BASE64: ${{ secrets.CLASPRC_JSON_BASE64 }}
+        run: |
+          # 使用環境變數而非直接 echo 秘鑰，更安全且能避免 Shell 特殊字元問題
+          echo "$CLASP_SECRET_BASE64" | base64 --decode > ~/.clasprc.json
+          
+          # 檢查檔案是否成功產生且非空
+          if [ ! -s ~/.clasprc.json ]; then
+            echo "Error: ~/.clasprc.json is empty or not created"
+            exit 1
+          fi
+          
+          # 驗證 JSON 語法 (不輸出內容)
+          cat ~/.clasprc.json | jq . > /dev/null
+          if [ $? -ne 0 ]; then
+            echo "Error: ~/.clasprc.json is not a valid JSON"
+            exit 1
+          fi
+
+      - name: Deploy to GAS
+        run: clasp push --force
