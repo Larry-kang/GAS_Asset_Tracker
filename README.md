@@ -10,7 +10,7 @@
 
 SAP 是一套建構於 Google Apps Script (GAS) 之上的無伺服器 (Serverless) 金融指管系統。它不只是一個記帳工具，而是一個整合了「數據採集」、「風險監控」與「戰略執行」的自動化引擎。系統透過 WebSocket 與 REST API 即時整合全球前四大加密貨幣交易所與台灣證交所數據，為使用者提供上帝視角的資產儀表板。
 
-## ? 核心功能 (Core Features)
+## ?? 核心功能 (Core Features)
 
 ### 1. 全自動數據同步 (Hyper-Sync Engine)
 *   **多源整合**: 支援 Binance, OKX, Pionex, BitoPro 四大交易所餘額同步。
@@ -48,7 +48,7 @@ SAP 是一套建構於 Google Apps Script (GAS) 之上的無伺服器 (Serverless) 金融指管系
 
 ---
 
-## ? 專案結構 (Architecture)
+## ?? 專案結構 (Architecture)
 
 ```
 /
