@@ -1,19 +1,19 @@
-# SAP v24.5 Monitoring & Operational Rules
+# SAP v24.5 監控與運作規則
 
-### 1. The Crimson Lines (Maintenance Ratios)
-*   **[SAFE] 2.5**: Core entity operating normally; Martingale accumulation allowed.
-*   **[ALERT] 2.1**: Suspend all BTC purchases; preserve Layer 3 ammunition for systemic risks.
-*   **[CRITICAL] 1.8**: Activate "Scorched Earth Defense." Force-sell noise assets to repay loans and protect the credit base.
+### 1. 血色警戒線 (維持率)
+*   **[安全] 2.5**: 核心實體運作正常；允許執行馬丁格爾積累策略。
+*   **[警戒] 2.1**: 暫停所有 BTC 買入行為；保留 Layer 3 彈藥以應對系統性風險。
+*   **[嚴重] 1.8**: 啟動「焦土防禦 (Scorched Earth Defense)」。強制清算非核心雜訊資產償還債務，以保護信用基盤。
 
-### 2. Strategic Allocation
-*   **Layer 1 (Digital Reserve - 80%)**: IBIT, BTC_Spot. Goal: Absolute sovereign ownership.
-*   **Layer 2 (Credit Base - 20%)**: 00713, 00662. Enforce "Never Sell Stocks" policy; acts as the anchor for debt pledging.
-*   **Layer 3 (Tactical Ammo)**: BOXX, CASH_TWD. Available tactical funds after deducting the treasury reserve.
+### 2. 戰略配置
+*   **Layer 1 (數位儲備 - 80%)**: IBIT, BTC_Spot. 目標：建立絕對的主權所有權。
+*   **Layer 2 (信用基盤 - 20%)**: 00713, 00662. 執行「永不賣股」策略；作為債務質押的定海神針。
+*   **Layer 3 (戰術彈藥)**: BOXX, CASH_TWD. 扣除國庫預備金後的可用戰術資金。
 
-### 3. Sniper Protocol
-*   **[SNIPER] $75,000 Institutional Floor**: Trigger a full automated strike to convert all BOXX tactical cash into IBIT if BTC touches this level.
-*   **[SNIPER] Martingale Strike**: Execute L1-L5 tiered buys based on drawdowns calculated from `BTC_Recent_High`.
+### 3. 狙擊協議
+*   **[狙擊] $75,000 機構地板價**: 若 BTC 觸及此價位，觸發全自動打擊，將所有 BOXX 戰術現金轉換為 IBIT。
+*   **[狙擊] 馬丁格爾打擊**: 根據 `BTC_Recent_High` 計算回調幅度，執行 L1-L5 分層買入。
 
 ---
-*Extreme Rationality in Action.*
-**Chief Strategy Officer**
+*極致理性，行動至上。*
+**首席戰略官**
