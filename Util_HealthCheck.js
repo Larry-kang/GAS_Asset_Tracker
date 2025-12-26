@@ -35,11 +35,25 @@ function runSystemHealthCheck() {
 
     // 3. API Connectivity (Latent Check)
     report += "\n[III] 網路連線診斷\n";
+    const tunnelUrl = props["TUNNEL_URL"];
+    const proxyPass = props["PROXY_PASSWORD"];
+    const targetUrl = tunnelUrl ? `${tunnelUrl}/api/v3/ping` : "https://api.binance.com/api/v3/ping";
+
+    const params = { muteHttpExceptions: true };
+    if (proxyPass) {
+        params.headers = { 'x-proxy-auth': proxyPass };
+    }
+
     try {
-        UrlFetchApp.fetch("https://api.binance.com/api/v3/ping");
-        report += "[通過] 幣安 API 連線正常\n";
+        const res = UrlFetchApp.fetch(targetUrl, params);
+        if (res.getResponseCode() === 200) {
+            report += `[通過] 幣安 API 連線正常 ${tunnelUrl ? "(透過隧道)" : "(直接連線)"}\n`;
+        } else {
+            report += `[失敗] 幣安 API 回應錯誤: ${res.getResponseCode()}\n`;
+            issues++;
+        }
     } catch (e) {
-        report += "[失敗] 幣安 API 無法連線或被阻擋\n";
+        report += `[失敗] 幣安 API 無法連線 (${e.message})\n`;
         issues++;
     }
 
