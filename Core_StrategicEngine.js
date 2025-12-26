@@ -181,11 +181,35 @@ function runDailyInvestmentCheck() {
 function setup() {
   const ui = SpreadsheetApp.getUi();
   const props = PropertiesService.getScriptProperties();
+
+  // 1. 設定 Email
   const emailRes = ui.prompt("設定管理員信箱 (ADMIN_EMAIL)", "請輸入 Email:", ui.ButtonSet.OK_CANCEL);
   if (emailRes.getSelectedButton() == ui.Button.OK) props.setProperty('ADMIN_EMAIL', emailRes.getResponseText());
+
+  // 2. 設定預備金
   const reserveRes = ui.prompt("設定預備金 (Treasury Reserve)", "請輸入預備金金額 (TWD):", ui.ButtonSet.OK_CANCEL);
   if (reserveRes.getSelectedButton() == ui.Button.OK) props.setProperty('TREASURY_RESERVE_TWD', reserveRes.getResponseText());
-  ui.alert("設定完成。");
+
+  // 3. 自動設定排程 (預設: 每日早上 6 點)
+  const defaultHour = 6;
+  props.setProperty('SCHEDULER_MODE', 'DAILY');
+  props.setProperty('SCHEDULER_HOUR', defaultHour.toString());
+  props.setProperty('SCHEDULER_ENABLED', 'true');
+
+  // 清除舊觸發器 (Inline logic to avoid dependency issues)
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(t => {
+    const func = t.getHandlerFunction();
+    if (func === 'runDailyInvestmentCheck' || func === 'autoRecordDailyValues' || func === 'updateAllPrices' || func === 'runAutomationMaster') {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+
+  // 建立新觸發器
+  ScriptApp.newTrigger('runAutomationMaster').timeBased().everyDays(1).atHour(defaultHour).create();
+  ScriptApp.newTrigger('autoRecordDailyValues').timeBased().everyDays(1).atHour(1).create();
+
+  ui.alert(`設定完成！\n已為您自動部署戰略排程：\n- 每日報告: 早上 ${defaultHour}:00 (美股收盤後)\n- 資產快照: 凌晨 01:00`);
 }
 
 function buildContext() {
