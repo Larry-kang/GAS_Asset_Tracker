@@ -1,77 +1,76 @@
-# SAP �D�v�겣��ĳ (Sovereign Asset Protocol) v24.6
+# SAP 主權資產協議 (Sovereign Asset Protocol) v24.6
 
-> **�t�ΥN��**: SAP  
-> **�֤ߥؼ�**: ��{��S������ (Bitcoin Standard) �����۰ʤƸ겣�l�ܻP�Բ��A���Ũt�ΡC  
-> **�������A**: Stable (Open Source Release)
-
----
-
-## �t��²�� (Abstract)
-
-SAP �O�@�M�غc�� Google Apps Script (GAS) ���W���L���A�� (Serverless) ���ī��ިt�ΡC�����u�O�@�ӰO�b�u��A�ӬO�@�Ӿ�X�F�u�ƾڱĶ��v�B�u���I�ʱ��v�P�u�Բ�����v���۰ʤƤ����C�t�γz�L WebSocket �P REST API �Y�ɾ�X���y�e�|�j�[�K�f������һP�x�W�ҥ�ҼƾڡA���ϥΪ̴��ѤW�ҵ������겣�����O�C
-
-## �֤ߥ\�� (Core Features)
-
-### 1. ���۰ʼƾڦP�B (Hyper-Sync Engine)
-*   **�h����X**: �䴩 Binance, OKX, Pionex, BitoPro �|�j����Ҿl�B�P�B�C
-*   **�x�Ѧ걵**: �۰ʧ�� TWSE �ĸ�����v�P�w�s���ȡC
-*   **�ײv����**: �z�L Google Finance �P�۫� API�A�Y�ɭp�� TWD/USD �`�겣�b�� (NAV)�C
-
-### 2. �Բ��M������ (Strategic Engine)
-*   **���I�ʱ�**: �Y�ɭp��h���x�������v (Maintenance Ratio)�A�C��ĵ�ٽu (�p 2.1) �۰ʵo�e���Oĵ���C
-*   **���B�溸����**: �ھ� BTC �^�մT�� (-30% ~ -70%)�A�۰ʭp���ĳ�۩����B�C
-*   **�겣�A����**: �ʱ��T�j�겣�h (Layer 1 �x�� / Layer 2 �H�� / Layer 3 �u��) �����v�A���ѦA���ū�ĳ�C
-
-### 3. devOps �P�۰ʤ�
-*   **CI/CD Pipeline**: ��X GitHub Actions�A��{ `git push` �Y�۰ʳ��p�� GAS�C
-*   **���d�ˬd**: ���� `Util_HealthCheck` �ҲաA�@��E�_ API �s�u�P�v�����A�C
-*   **��������x**: �۬� `Core_LogService`�A�N���ݰ���������c�Ƽg�J�պ���A�K�󰣿��C
+> **系統代號**: SAP  
+> **核心目標**: 實現比特幣本位 (Bitcoin Standard) 的全自動化資產追蹤與戰略再平衡系統。  
+> **版本狀態**: Stable (Open Source Release)
 
 ---
 
-## CI/CD �۰ʤƳ��p����
+## 系統簡介 (Abstract)
 
-���M�ױĥ� **GitHub Actions** ���X **Google Clasp** �i������X�P���p�C
+SAP 是一套建構於 Google Apps Script (GAS) 之上的無伺服器 (Serverless) 金融指管系統。它不只是一個記帳工具，而是一個整合了「數據採集」、「風險監控」與「戰略執行」的自動化引擎。系統透過 WebSocket 與 REST API 即時整合全球前四大加密貨幣交易所與台灣證交所數據，為使用者提供上帝視角的資產儀表板。
 
-### `setup_cicd` �O����H
-�o�O�@�ӱM�� Windows ���ҳ]�p�� PowerShell �}�� (`setup_cicd.ps1`)�C
-*   **�\��**: �۰�Ū���z���a�� Google �n�J���� (`~/.clasprc.json`)�A�N���ഫ�� Base64 �s�X�A�óz�L GitHub CLI (`gh`) �w���a�W�Ǧܱz GitHub Repo �� Secrets (`CLASPRC_JSON_BASE64`)�C
-*   **�ت�**: �� GitHub Actions ���ݦ��A���֦��u��t�z�v���v���A������� `clasp push` �N�{���X�g�J�z�� Google Sheet �M�סC
+## 核心功能 (Core Features)
 
-### �p��ҥΡH
-1.  �T�{�w�w�� `clasp` �õn�J (`clasp login`)�C
-2.  �b�M�׮ڥؿ����� PowerShell ���O�G
+### 1. 全自動數據同步 (Hyper-Sync Engine)
+*   **多源整合**: 支援 Binance, OKX, Pionex, BitoPro 四大交易所餘額同步。
+*   **台股串接**: 自動抓取 TWSE 融資維持率與庫存市值。
+*   **匯率換算**: 透過 Google Finance 與自建 API，即時計算 TWD/USD 總資產淨值 (NAV)。
+
+### 2. 戰略決策引擎 (Strategic Engine)
+*   **風險監控**: 即時計算多平台質押維持率 (Maintenance Ratio)，低於警戒線 (如 2.1) 自動發送紅燈警報。
+*   **馬丁格爾策略**: 根據 BTC 回調幅度 (-30% ~ -70%)，自動計算建議抄底金額。
+*   **資產再平衡**: 監控三大資產層 (Layer 1 儲備 / Layer 2 信用 / Layer 3 彈藥) 偏移率，提供再平衡建議。
+
+### 3. devOps 與自動化
+*   **CI/CD Pipeline**: 整合 GitHub Actions，實現 `git push` 即自動部署至 GAS。
+*   **健康檢查**: 內建 `Util_HealthCheck` 模組，每日巡檢 API 連線與憑證狀態。
+*   **日誌服務**: 自建 `Core_LogService`，將關鍵操作與錯誤結構化寫入獨立日誌分頁，便於追蹤。
+
+---
+
+## CI/CD 自動化部署流程
+
+本專案採用 **GitHub Actions** 結合 **Google Clasp** 進行持續整合與部署。
+
+### `setup_cicd` 是什麼？
+這是一個專為 Windows 環境設計的 PowerShell 腳本 (`setup_cicd.ps1`)。
+*   **功能**: 自動讀取您本地的 Google 登入憑證 (`~/.clasprc.json`)，將其轉換為 Base64 編碼，並透過 GitHub CLI (`gh`) 安全地上傳至您 GitHub Repo 的 Secrets (`CLASPRC_JSON_BASE64`)。
+*   **目的**: 讓 GitHub Actions 雲端伺服器擁有「扮演您」的權限，能夠執行 `clasp push` 將程式碼寫入您的 Google Sheet 專案。
+
+### 如何啟用？
+1.  確認已安裝 `clasp` 並登入 (`clasp login`)。
+2.  在專案根目錄執行 PowerShell 指令：
     ```powershell
     .\setup_cicd.ps1
     ```
-3.  �ݨ��⦨�\�T����A���ӥu�ݰ��� `git push`�A�{���X�K�|�۰ʦP�B�� Google Apps Script�C
+3.  看到綠色成功訊息後，未來只需執行 `git push`，程式碼便會自動同步至 Google Apps Script。
 
 ---
 
-## �M�׵��c (Architecture)
+## 專案結構 (Architecture)
 
 ```
 /
-�u�w�w Core_*.js           # [�֤߼h] �Բ������B��x�A�ȡB�D�����|
-�u�w�w Event_*.js          # [�ƥ�h] Ĳ�o�� (OnOpen, Webhook)
-�u�w�w Sync_*.js           # [�P�B�h] �U�j����� API ��@ (Binance, OKX...)
-�u�w�w Util_*.js           # [�u��h] �q�Τu�� (HealthCheck, TWSE...)
-�u�w�w .github/workflows/  # [CI/CD] GitHub Actions �]�w��
-�|�w�w setup_cicd.ps1      # [���p] ���Ҧ۰ʤƳ]�w�}��
+├── Core_*.js           # [核心層] 戰略引擎、日誌服務、主控路徑
+├── Event_*.js          # [事件層] 觸發器 (OnOpen, Webhook)
+├── Sync_*.js           # [同步層] 各大交易所 API 實作 (Binance, OKX...)
+├── Util_*.js           # [工具層] 通用工具 (HealthCheck, TWSE...)
+├── .github/workflows/  # [CI/CD] GitHub Actions 設定檔
+└── setup_cicd.ps1      # [部署] 憑證自動化設定腳本
 ```
 
 ---
 
-## �ֳt�}�l (Quick Start)
+## 快速開始 (Quick Start)
 
-1.  **���ҷǳ�**: �w�� Node.js, Clasp, Git�C
-2.  **�Ԩ��M��**: `git clone <REPO_URL>`
-3.  **�n�J���v**: `clasp login`
-4.  **�]�w CI**: ���� `.\setup_cicd.ps1`
-5.  **�}�l�}�o**: �ק�N�X�� `git push` �Y�i�C
+1.  **環境準備**: 安裝 Node.js, Clasp, Git。
+2.  **拉取專案**: `git clone <REPO_URL>`
+3.  **登入授權**: `clasp login`
+4.  **設定 CI**: 執行 `.\setup_cicd.ps1`
+5.  **開始開發**: 修改代碼後 `git push` 即可。
 
 ---
-
 
 ## 👤 Author
 
