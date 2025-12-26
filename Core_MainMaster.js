@@ -17,7 +17,7 @@ function runAutomationMaster() {
   try {
     // 1. Update Market Data
     LogService.info("Phase 1: Updating Market Data (Prices & Forex)...", context);
-    if (typeof syncCurrencyPairs === 'function') syncCurrencyPairs();
+    if (typeof syncCurrencyPairs === 'function') syncCurrencyPairs(true);
     updateAllPrices();
 
     // 2. Sync Exchange Balances
