@@ -4,11 +4,13 @@
  * 無論參數是文字還是儲存格引用，都能解析出真實的貨幣對，
  * 並自動在 '參數設定' 工作表中新增缺失的行和列。
  */
-function syncCurrencyPairs() {
+function syncCurrencyPairs(silent = false) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const targetSheet = ss.getSheetByName('參數設定');
   if (!targetSheet) {
-    SpreadsheetApp.getUi().alert("錯誤：找不到名為 '參數設定' 的工作表。");
+    const msg = "錯誤：找不到名為 '參數設定' 的工作表。";
+    if (!silent) SpreadsheetApp.getUi().alert(msg);
+    else console.error(msg);
     return;
   }
   const allSheets = ss.getSheets();
@@ -16,7 +18,7 @@ function syncCurrencyPairs() {
   // 獲取 '參數設定' 表中已有的貨幣列表
   const existingFrom = targetSheet.getRange('A2:A').getValues().flat().filter(String);
   const existingTo = targetSheet.getRange('1:1').getValues()[0].filter(String);
-  
+
   const requiredPairs = new Set();
   const formulaRegex = /MY_GOOGLEFINANCE\(([^,)]+),([^,)]+)\)/gi;
 
@@ -26,14 +28,14 @@ function syncCurrencyPairs() {
     if (sheet.getName() === '參數設定') return;
 
     const formulas = sheet.getDataRange().getFormulas();
-    
+
     formulas.forEach((row, rIndex) => {
       row.forEach((formula, cIndex) => {
         if (formula && formula.toUpperCase().includes('MY_GOOGLEFINANCE')) {
           // 重置正則表達式的 lastIndex
-          formulaRegex.lastIndex = 0; 
+          formulaRegex.lastIndex = 0;
           let match = formulaRegex.exec(formula);
-          
+
           if (match) {
             // 解析兩個參數
             const arg1Text = match[1].trim();
@@ -41,7 +43,7 @@ function syncCurrencyPairs() {
 
             const fromCurrency = resolveArgument(arg1Text, sheet);
             const toCurrency = resolveArgument(arg2Text, sheet);
-            
+
             if (fromCurrency && toCurrency) {
               requiredPairs.add(JSON.stringify({ from: fromCurrency, to: toCurrency }));
             }
@@ -57,7 +59,7 @@ function syncCurrencyPairs() {
   // 處理所有需要的新貨幣對
   requiredPairs.forEach(pairStr => {
     const pair = JSON.parse(pairStr);
-    
+
     // 檢查並新增 fromCurrency (行)
     if (!existingFrom.includes(pair.from)) {
       targetSheet.appendRow([pair.from]);
@@ -65,11 +67,11 @@ function syncCurrencyPairs() {
       newFromAdded = true;
       Logger.log(`新增 From-Currency: ${pair.from}`);
     }
-    
+
     // 檢查並新增 toCurrency (列)
     // 修正：toCurrency 欄位應該是 B, D, F...
     let toColIndex = existingTo.findIndex(h => h === pair.to);
-    if (toColIndex === -1 || (toColIndex % 2 === 0 && toColIndex !== 0) ) { // 確保 toCurrency 在正確的欄位
+    if (toColIndex === -1 || (toColIndex % 2 === 0 && toColIndex !== 0)) { // 確保 toCurrency 在正確的欄位
       const lastCol = targetSheet.getLastColumn();
       targetSheet.getRange(1, lastCol + 1, 1, 2).setValues([[pair.to, 'Timestamp']]); // 只新增 To-Currency 和 Timestamp 標題
       existingTo.push(pair.to);
@@ -78,10 +80,18 @@ function syncCurrencyPairs() {
     }
   });
 
-  if (newFromAdded || newToAdded) {
-    SpreadsheetApp.getUi().alert('成功新增缺失的貨幣對！稍後匯率將會自動更新。');
+  if (!silent) {
+    if (newFromAdded || newToAdded) {
+      SpreadsheetApp.getUi().alert('成功新增缺失的貨幣對！稍後匯率將會自動更新。');
+    } else {
+      SpreadsheetApp.getUi().alert('所有貨幣對均已存在，無需新增。');
+    }
   } else {
-    SpreadsheetApp.getUi().alert('所有貨幣對均已存在，無需新增。');
+    if (newFromAdded || newToAdded) {
+      Logger.log('成功新增缺失的貨幣對。');
+    } else {
+      Logger.log('所有貨幣對均已存在。');
+    }
   }
 }
 
@@ -96,7 +106,7 @@ function resolveArgument(argText, currentSheet) {
   if ((argText.startsWith('"') && argText.endsWith('"')) || (argText.startsWith("'") && argText.endsWith("'"))) {
     return argText.substring(1, argText.length - 1);
   }
-  
+
   // 情況2：參數是儲存格引用
   try {
     // 檢查是否包含工作表名稱, e.g., '工作表2'!B2
