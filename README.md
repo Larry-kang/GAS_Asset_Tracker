@@ -1,75 +1,82 @@
-# SAP ¥DÅv¸ê²£¨óÄ³ (Sovereign Asset Protocol) v24.6
+# SAP ï¿½Dï¿½vï¿½ê²£ï¿½ï¿½Ä³ (Sovereign Asset Protocol) v24.6
 
-> **¨t²Î¥N¸¹**: SAP  
-> **®Ö¤ß¥Ø¼Ð**: ¹ê²{¤ñ¯S¹ô¥»¦ì (Bitcoin Standard) ªº¥þ¦Û°Ê¤Æ¸ê²£°lÂÜ»P¾Ô²¤¦A¥­¿Å¨t²Î¡C  
-> **ª©¥»ª¬ºA**: Stable (Open Source Release)
-
----
-
-## ¨t²ÎÂ²¤¶ (Abstract)
-
-SAP ¬O¤@®M«Øºc©ó Google Apps Script (GAS) ¤§¤WªºµL¦øªA¾¹ (Serverless) ª÷¿Ä«üºÞ¨t²Î¡C¥¦¤£¥u¬O¤@­Ó°O±b¤u¨ã¡A¦Ó¬O¤@­Ó¾ã¦X¤F¡u¼Æ¾Ú±Ä¶°¡v¡B¡u­·ÀIºÊ±±¡v»P¡u¾Ô²¤°õ¦æ¡vªº¦Û°Ê¤Æ¤ÞÀº¡C¨t²Î³z¹L WebSocket »P REST API §Y®É¾ã¦X¥þ²y«e¥|¤j¥[±K³f¹ô¥æ©ö©Ò»P¥xÆWÃÒ¥æ©Ò¼Æ¾Ú¡A¬°¨Ï¥ÎªÌ´£¨Ñ¤W«Òµø¨¤ªº¸ê²£»öªíªO¡C
-
-## ®Ö¤ß¥\¯à (Core Features)
-
-### 1. ¥þ¦Û°Ê¼Æ¾Ú¦P¨B (Hyper-Sync Engine)
-*   **¦h·½¾ã¦X**: ¤ä´© Binance, OKX, Pionex, BitoPro ¥|¤j¥æ©ö©Ò¾lÃB¦P¨B¡C
-*   **¥xªÑ¦ê±µ**: ¦Û°Ê§ì¨ú TWSE ¿Ä¸êºû«ù²v»P®w¦s¥«­È¡C
-*   **¶×²v´«ºâ**: ³z¹L Google Finance »P¦Û«Ø API¡A§Y®É­pºâ TWD/USD Á`¸ê²£²b­È (NAV)¡C
-
-### 2. ¾Ô²¤¨Mµ¦¤ÞÀº (Strategic Engine)
-*   **­·ÀIºÊ±±**: §Y®É­pºâ¦h¥­¥x½è©ãºû«ù²v (Maintenance Ratio)¡A§C©óÄµ§Ù½u (¦p 2.1) ¦Û°Êµo°e¬õ¿OÄµ³ø¡C
-*   **°¨¤B®æº¸µ¦²¤**: ®Ú¾Ú BTC ¦^½Õ´T«× (-30% ~ -70%)¡A¦Û°Ê­pºâ«ØÄ³§Û©³ª÷ÃB¡C
-*   **¸ê²£¦A¥­¿Å**: ºÊ±±¤T¤j¸ê²£¼h (Layer 1 Àx³Æ / Layer 2 «H¥Î / Layer 3 ¼uÃÄ) °¾²¾²v¡A´£¨Ñ¦A¥­¿Å«ØÄ³¡C
-
-### 3. devOps »P¦Û°Ê¤Æ
-*   **CI/CD Pipeline**: ¾ã¦X GitHub Actions¡A¹ê²{ `git push` §Y¦Û°Ê³¡¸p¦Ü GAS¡C
-*   **°·±dÀË¬d**: ¤º«Ø `Util_HealthCheck` ¼Ò²Õ¡A¤@Áä¶EÂ_ API ³s½u»PÅv­­ª¬ºA¡C
-*   **¶°¤¤¦¡¤é»x**: ¦Û¬ã `Core_LogService`¡A±N¶³ºÝ°õ¦æ¬ö¿ýµ²ºc¤Æ¼g¤J¸Õºâªí¡A«K©ó°£¿ù¡C
+> **ï¿½tï¿½Î¥Nï¿½ï¿½**: SAP  
+> **ï¿½Ö¤ß¥Ø¼ï¿½**: ï¿½ï¿½{ï¿½ï¿½Sï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ (Bitcoin Standard) ï¿½ï¿½ï¿½ï¿½ï¿½Û°Ê¤Æ¸ê²£ï¿½lï¿½Ü»Pï¿½Ô²ï¿½ï¿½Aï¿½ï¿½ï¿½Å¨tï¿½Î¡C  
+> **ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½A**: Stable (Open Source Release)
 
 ---
 
-## CI/CD ¦Û°Ê¤Æ³¡¸p»¡©ú
+## ï¿½tï¿½ï¿½Â²ï¿½ï¿½ (Abstract)
 
-¥»±M®×±Ä¥Î **GitHub Actions** µ²¦X **Google Clasp** ¶i¦æ«ùÄò¾ã¦X»P³¡¸p¡C
+SAP ï¿½Oï¿½@ï¿½Mï¿½Øºcï¿½ï¿½ Google Apps Script (GAS) ï¿½ï¿½ï¿½Wï¿½ï¿½ï¿½Lï¿½ï¿½ï¿½Aï¿½ï¿½ (Serverless) ï¿½ï¿½ï¿½Ä«ï¿½ï¿½Þ¨tï¿½Î¡Cï¿½ï¿½ï¿½ï¿½ï¿½uï¿½Oï¿½@ï¿½Ó°Oï¿½bï¿½uï¿½ï¿½Aï¿½Ó¬Oï¿½@ï¿½Ó¾ï¿½Xï¿½Fï¿½uï¿½Æ¾Ú±Ä¶ï¿½ï¿½vï¿½Bï¿½uï¿½ï¿½ï¿½Iï¿½Ê±ï¿½ï¿½vï¿½Pï¿½uï¿½Ô²ï¿½ï¿½ï¿½ï¿½ï¿½vï¿½ï¿½ï¿½Û°Ê¤Æ¤ï¿½ï¿½ï¿½ï¿½Cï¿½tï¿½Î³zï¿½L WebSocket ï¿½P REST API ï¿½Yï¿½É¾ï¿½Xï¿½ï¿½ï¿½yï¿½eï¿½|ï¿½jï¿½[ï¿½Kï¿½fï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ò»Pï¿½xï¿½Wï¿½Ò¥ï¿½Ò¼Æ¾Ú¡Aï¿½ï¿½ï¿½Ï¥ÎªÌ´ï¿½ï¿½Ñ¤Wï¿½Òµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ê²£ï¿½ï¿½ï¿½ï¿½ï¿½Oï¿½C
 
-### `setup_cicd` ¬O¤°»ò¡H
-³o¬O¤@­Ó±M¬° Windows Àô¹Ò³]­pªº PowerShell ¸}¥» (`setup_cicd.ps1`)¡C
-*   **¥\¯à**: ¦Û°ÊÅª¨ú±z¥»¦aªº Google µn¤J¾ÌÃÒ (`~/.clasprc.json`)¡A±N¨äÂà´«¬° Base64 ½s½X¡A¨Ã³z¹L GitHub CLI (`gh`) ¦w¥þ¦a¤W¶Ç¦Ü±z GitHub Repo ªº Secrets (`CLASPRC_JSON_BASE64`)¡C
-*   **¥Øªº**: Åý GitHub Actions ¶³ºÝ¦øªA¾¹¾Ö¦³¡u§êºt±z¡vªºÅv­­¡A¯à°÷°õ¦æ `clasp push` ±Nµ{¦¡½X¼g¤J±zªº Google Sheet ±M®×¡C
+## ï¿½Ö¤ß¥\ï¿½ï¿½ (Core Features)
 
-### ¦p¦ó±Ò¥Î¡H
-1.  ½T»{¤w¦w¸Ë `clasp` ¨Ãµn¤J (`clasp login`)¡C
-2.  ¦b±M®×®Ú¥Ø¿ý°õ¦æ PowerShell «ü¥O¡G
+### 1. ï¿½ï¿½ï¿½Û°Ê¼Æ¾Ú¦Pï¿½B (Hyper-Sync Engine)
+*   **ï¿½hï¿½ï¿½ï¿½ï¿½X**: ï¿½ä´© Binance, OKX, Pionex, BitoPro ï¿½|ï¿½jï¿½ï¿½ï¿½ï¿½Ò¾lï¿½Bï¿½Pï¿½Bï¿½C
+*   **ï¿½xï¿½Ñ¦ê±µ**: ï¿½Û°Ê§ï¿½ï¿½ TWSE ï¿½Ä¸ï¿½ï¿½ï¿½ï¿½ï¿½vï¿½Pï¿½wï¿½sï¿½ï¿½ï¿½È¡C
+*   **ï¿½×²vï¿½ï¿½ï¿½ï¿½**: ï¿½zï¿½L Google Finance ï¿½Pï¿½Û«ï¿½ APIï¿½Aï¿½Yï¿½É­pï¿½ï¿½ TWD/USD ï¿½`ï¿½ê²£ï¿½bï¿½ï¿½ (NAV)ï¿½C
+
+### 2. ï¿½Ô²ï¿½ï¿½Mï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ (Strategic Engine)
+*   **ï¿½ï¿½ï¿½Iï¿½Ê±ï¿½**: ï¿½Yï¿½É­pï¿½ï¿½hï¿½ï¿½ï¿½xï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½v (Maintenance Ratio)ï¿½Aï¿½Cï¿½ï¿½Äµï¿½Ù½u (ï¿½p 2.1) ï¿½Û°Êµoï¿½eï¿½ï¿½ï¿½OÄµï¿½ï¿½ï¿½C
+*   **ï¿½ï¿½ï¿½Bï¿½æº¸ï¿½ï¿½ï¿½ï¿½**: ï¿½Ú¾ï¿½ BTC ï¿½^ï¿½Õ´Tï¿½ï¿½ (-30% ~ -70%)ï¿½Aï¿½Û°Ê­pï¿½ï¿½ï¿½Ä³ï¿½Û©ï¿½ï¿½ï¿½ï¿½Bï¿½C
+*   **ï¿½ê²£ï¿½Aï¿½ï¿½ï¿½ï¿½**: ï¿½Ê±ï¿½ï¿½Tï¿½jï¿½ê²£ï¿½h (Layer 1 ï¿½xï¿½ï¿½ / Layer 2 ï¿½Hï¿½ï¿½ / Layer 3 ï¿½uï¿½ï¿½) ï¿½ï¿½ï¿½ï¿½ï¿½vï¿½Aï¿½ï¿½ï¿½Ñ¦Aï¿½ï¿½ï¿½Å«ï¿½Ä³ï¿½C
+
+### 3. devOps ï¿½Pï¿½Û°Ê¤ï¿½
+*   **CI/CD Pipeline**: ï¿½ï¿½X GitHub Actionsï¿½Aï¿½ï¿½{ `git push` ï¿½Yï¿½Û°Ê³ï¿½ï¿½pï¿½ï¿½ GASï¿½C
+*   **ï¿½ï¿½ï¿½dï¿½Ë¬d**: ï¿½ï¿½ï¿½ï¿½ `Util_HealthCheck` ï¿½Ò²Õ¡Aï¿½@ï¿½ï¿½Eï¿½_ API ï¿½sï¿½uï¿½Pï¿½vï¿½ï¿½ï¿½ï¿½ï¿½Aï¿½C
+*   **ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½x**: ï¿½Û¬ï¿½ `Core_LogService`ï¿½Aï¿½Nï¿½ï¿½ï¿½Ý°ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½cï¿½Æ¼gï¿½Jï¿½Õºï¿½ï¿½ï¿½Aï¿½Kï¿½ó°£¿ï¿½ï¿½C
+
+---
+
+## CI/CD ï¿½Û°Ê¤Æ³ï¿½ï¿½pï¿½ï¿½ï¿½ï¿½
+
+ï¿½ï¿½ï¿½Mï¿½×±Ä¥ï¿½ **GitHub Actions** ï¿½ï¿½ï¿½X **Google Clasp** ï¿½iï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Xï¿½Pï¿½ï¿½ï¿½pï¿½C
+
+### `setup_cicd` ï¿½Oï¿½ï¿½ï¿½ï¿½H
+ï¿½oï¿½Oï¿½@ï¿½Ó±Mï¿½ï¿½ Windows ï¿½ï¿½ï¿½Ò³]ï¿½pï¿½ï¿½ PowerShell ï¿½}ï¿½ï¿½ (`setup_cicd.ps1`)ï¿½C
+*   **ï¿½\ï¿½ï¿½**: ï¿½Û°ï¿½Åªï¿½ï¿½ï¿½zï¿½ï¿½ï¿½aï¿½ï¿½ Google ï¿½nï¿½Jï¿½ï¿½ï¿½ï¿½ (`~/.clasprc.json`)ï¿½Aï¿½Nï¿½ï¿½ï¿½à´«ï¿½ï¿½ Base64 ï¿½sï¿½Xï¿½Aï¿½Ã³zï¿½L GitHub CLI (`gh`) ï¿½wï¿½ï¿½ï¿½aï¿½Wï¿½Ç¦Ü±z GitHub Repo ï¿½ï¿½ Secrets (`CLASPRC_JSON_BASE64`)ï¿½C
+*   **ï¿½Øªï¿½**: ï¿½ï¿½ GitHub Actions ï¿½ï¿½ï¿½Ý¦ï¿½ï¿½Aï¿½ï¿½ï¿½Ö¦ï¿½ï¿½uï¿½ï¿½tï¿½zï¿½vï¿½ï¿½ï¿½vï¿½ï¿½ï¿½Aï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ `clasp push` ï¿½Nï¿½{ï¿½ï¿½ï¿½Xï¿½gï¿½Jï¿½zï¿½ï¿½ Google Sheet ï¿½Mï¿½×¡C
+
+### ï¿½pï¿½ï¿½Ò¥Î¡H
+1.  ï¿½Tï¿½{ï¿½wï¿½wï¿½ï¿½ `clasp` ï¿½Ãµnï¿½J (`clasp login`)ï¿½C
+2.  ï¿½bï¿½Mï¿½×®Ú¥Ø¿ï¿½ï¿½ï¿½ï¿½ï¿½ PowerShell ï¿½ï¿½ï¿½Oï¿½G
     ```powershell
     .\setup_cicd.ps1
     ```
-3.  ¬Ý¨ìºñ¦â¦¨¥\°T®§«á¡A¥¼¨Ó¥u»Ý°õ¦æ `git push`¡Aµ{¦¡½X«K·|¦Û°Ê¦P¨B¦Ü Google Apps Script¡C
+3.  ï¿½Ý¨ï¿½ï¿½â¦¨ï¿½\ï¿½Tï¿½ï¿½ï¿½ï¿½Aï¿½ï¿½ï¿½Ó¥uï¿½Ý°ï¿½ï¿½ï¿½ `git push`ï¿½Aï¿½{ï¿½ï¿½ï¿½Xï¿½Kï¿½|ï¿½Û°Ê¦Pï¿½Bï¿½ï¿½ Google Apps Scriptï¿½C
 
 ---
 
-## ±M®×µ²ºc (Architecture)
+## ï¿½Mï¿½×µï¿½ï¿½c (Architecture)
 
 ```
 /
-¢u¢w¢w Core_*.js           # [®Ö¤ß¼h] ¾Ô²¤¤ÞÀº¡B¤é»xªA°È¡B¥D±±¸ô®|
-¢u¢w¢w Event_*.js          # [¨Æ¥ó¼h] Ä²µo¾¹ (OnOpen, Webhook)
-¢u¢w¢w Sync_*.js           # [¦P¨B¼h] ¦U¤j¥æ©ö©Ò API ¹ê§@ (Binance, OKX...)
-¢u¢w¢w Util_*.js           # [¤u¨ã¼h] ³q¥Î¤u¨ã (HealthCheck, TWSE...)
-¢u¢w¢w .github/workflows/  # [CI/CD] GitHub Actions ³]©wÀÉ
-¢|¢w¢w setup_cicd.ps1      # [³¡¸p] ¾ÌÃÒ¦Û°Ê¤Æ³]©w¸}¥»
+ï¿½uï¿½wï¿½w Core_*.js           # [ï¿½Ö¤ß¼h] ï¿½Ô²ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Bï¿½ï¿½xï¿½Aï¿½È¡Bï¿½Dï¿½ï¿½ï¿½ï¿½ï¿½|
+ï¿½uï¿½wï¿½w Event_*.js          # [ï¿½Æ¥ï¿½h] Ä²ï¿½oï¿½ï¿½ (OnOpen, Webhook)
+ï¿½uï¿½wï¿½w Sync_*.js           # [ï¿½Pï¿½Bï¿½h] ï¿½Uï¿½jï¿½ï¿½ï¿½ï¿½ï¿½ API ï¿½ï¿½@ (Binance, OKX...)
+ï¿½uï¿½wï¿½w Util_*.js           # [ï¿½uï¿½ï¿½h] ï¿½qï¿½Î¤uï¿½ï¿½ (HealthCheck, TWSE...)
+ï¿½uï¿½wï¿½w .github/workflows/  # [CI/CD] GitHub Actions ï¿½]ï¿½wï¿½ï¿½
+ï¿½|ï¿½wï¿½w setup_cicd.ps1      # [ï¿½ï¿½ï¿½p] ï¿½ï¿½ï¿½Ò¦Û°Ê¤Æ³]ï¿½wï¿½}ï¿½ï¿½
 ```
 
 ---
 
-## §Ö³t¶}©l (Quick Start)
+## ï¿½Ö³tï¿½}ï¿½l (Quick Start)
 
-1.  **Àô¹Ò·Ç³Æ**: ¦w¸Ë Node.js, Clasp, Git¡C
-2.  **©Ô¨ú±M®×**: `git clone <REPO_URL>`
-3.  **µn¤J±ÂÅv**: `clasp login`
-4.  **³]©w CI**: °õ¦æ `.\setup_cicd.ps1`
-5.  **¶}©l¶}µo**: ­×§ï¥N½X«á `git push` §Y¥i¡C
+1.  **ï¿½ï¿½ï¿½Ò·Ç³ï¿½**: ï¿½wï¿½ï¿½ Node.js, Clasp, Gitï¿½C
+2.  **ï¿½Ô¨ï¿½ï¿½Mï¿½ï¿½**: `git clone <REPO_URL>`
+3.  **ï¿½nï¿½Jï¿½ï¿½ï¿½v**: `clasp login`
+4.  **ï¿½]ï¿½w CI**: ï¿½ï¿½ï¿½ï¿½ `.\setup_cicd.ps1`
+5.  **ï¿½}ï¿½lï¿½}ï¿½o**: ï¿½×§ï¿½Nï¿½Xï¿½ï¿½ `git push` ï¿½Yï¿½iï¿½C
 
 ---
 
-*Built with ?? by Automated Agentic Engineer.*
+
+## ðŸ‘¤ Author
+
+**Larry Kang**
+
+* **Role:** Senior Backend Engineer | FinTech Specialist
+* **Focus:** Distributed Systems, Payment Architecture, .NET Performance Tuning.
+* **Contact:** [LinkedIn Profile](www.linkedin.com/in/larry-kang)
