@@ -92,14 +92,24 @@ function showSystemDashboard() {
     const ind = {}; d.forEach(r => { if (r[0]) ind[r[0]] = r[1]; });
 
     const status = SCHEDULER_CONFIG.IS_ENABLED ? "[ACTIVE]" : "[OFF]";
+    const mode = props.getProperty('SCHEDULER_MODE') || 'INTERVAL';
     const interval = SCHEDULER_CONFIG.INTERVAL_HOURS;
+    const hour = props.getProperty('SCHEDULER_HOUR');
+
+    let scheduleInfo = "";
+    if (mode === 'DAILY') {
+        scheduleInfo = `Daily at ${hour}:00`;
+    } else {
+        scheduleInfo = `Every ${interval} hour(s)`;
+    }
+
     const email = props.getProperty('ADMIN_EMAIL') || "Not Set";
     const reserve = props.getProperty('TREASURY_RESERVE_TWD') || "100000";
     const btcHigh = ind.BTC_Recent_High || "No Data";
 
     let m = "--- [SAP v24.5 System Dashboard] ---\n\n";
     m += "1. System Status: " + status + "\n";
-    m += "2. Update Interval: Every " + interval + " hour(s)\n";
+    m += "2. Schedule: " + scheduleInfo + "\n";
     m += "3. Admin Email: " + email + "\n";
     m += "4. Treasury Reserve: TWD " + parseInt(reserve).toLocaleString() + "\n";
     m += "5. BTC Reference High: $" + (isNaN(parseFloat(btcHigh)) ? btcHigh : parseFloat(btcHigh).toLocaleString()) + "\n\n";
