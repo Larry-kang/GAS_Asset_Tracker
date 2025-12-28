@@ -1,80 +1,53 @@
 /**
- * @OnlyCurrentDoc
- * SAP Dynamic Scheduler (v24.5) - Technical Debugging Edition
+ * 排程器觸發設定
+ * 用於管理所有自動化觸發程序
  */
 
-const SCHEDULER_CONFIG = {
-    get INTERVAL_HOURS() {
-        const val = PropertiesService.getScriptProperties().getProperty('SCHEDULER_INTERVAL_HOURS');
-        return val ? parseInt(val) : 24;
-    },
-    get IS_ENABLED() {
-        return PropertiesService.getScriptProperties().getProperty('SCHEDULER_ENABLED') === 'true';
-    }
-};
-
-function deleteAllSapTriggers_() {
-    const triggers = ScriptApp.getProjectTriggers();
-    triggers.forEach(t => {
-        const func = t.getHandlerFunction();
-        if (func === 'runDailyInvestmentCheck' || func === 'autoRecordDailyValues' || func === 'updateAllPrices' || func === 'runAutomationMaster' || func === 'updateDailyRoutine') {
-            ScriptApp.deleteTrigger(t);
-        }
-    });
-}
-
-function startScheduler() {
+function setupScheduledTriggers() {
     const ui = SpreadsheetApp.getUi();
     const props = PropertiesService.getScriptProperties();
 
-    // Choose Mode
-    const modeRes = ui.alert(
-        "[Scheduler] 戰略排程設定",
-        "請選擇自動化報告的觸發模式：\n\n[是 (Yes)] 指定每日固定時間 (例如: 每天早上 6 點)\n[否 (No)] 指定間隔循環 (例如: 每 8 小時一次)",
-        ui.ButtonSet.YES_NO
-    );
+    // 讀取設定
+    const mode = props.getProperty('SCHEDULER_MODE') || 'INTERVAL'; // INTERVAL or DAILY
+    const hour = parseInt(props.getProperty('SCHEDULER_HOUR') || '9');
+    const interval = SCHEDULER_CONFIG.INTERVAL_HOURS;
 
-    let isDailyMode = (modeRes == ui.Button.YES);
+    // 清除舊的觸發器
+    deleteAllSapTriggers_();
 
-    if (isDailyMode) {
-        // Daily Mode: Ask for Hour
-        const hourRes = ui.prompt("[Scheduler] 指定執行時間", "請輸入每天執行的小時 (0-23):\n(建議: 輸入 6 代表早上 6 點，美股收盤後)", ui.ButtonSet.OK_CANCEL);
-        if (hourRes.getSelectedButton() == ui.Button.OK) {
-            let hour = parseInt(hourRes.getResponseText());
-            if (isNaN(hour) || hour < 0 || hour > 23) hour = 6; // Default to 6 AM
-
-            props.setProperty('SCHEDULER_MODE', 'DAILY');
-            props.setProperty('SCHEDULER_HOUR', hour.toString());
-            props.setProperty('SCHEDULER_ENABLED', 'true');
-            deleteAllSapTriggers_();
-
-            // Daily Trigger at specific hour
+    // 建立新的觸發器
+    if (SCHEDULER_CONFIG.IS_ENABLED) {
+        if (mode === 'DAILY') {
+            // Daily Mode: Run main sync once a day at specific hour
             ScriptApp.newTrigger('runAutomationMaster').timeBased().everyDays(1).atHour(hour).create();
-            // Snapshot Trigger (Fixed at 1 AM)
-            ScriptApp.newTrigger('autoRecordDailyValues').timeBased().everyDays(1).atHour(1).create();
 
-            ui.alert(`[OK] 排程已啟動。\n- 戰略報告: 每天 ${hour}:00 - ${hour}:59 之間執行\n- 資產快照: 每天 01:00 AM`);
-        }
-    } else {
-        // Interval Mode: Ask for Duration
-        const response = ui.prompt("[Scheduler] 設定循環間隔", "請輸入執行間隔 (小時):", ui.ButtonSet.OK_CANCEL);
-        if (response.getSelectedButton() == ui.Button.OK) {
-            let interval = parseInt(response.getResponseText());
-            if (isNaN(interval) || interval <= 0) interval = 24;
-
-            props.setProperty('SCHEDULER_MODE', 'INTERVAL');
-            props.setProperty('SCHEDULER_INTERVAL_HOURS', interval.toString());
-            props.setProperty('SCHEDULER_ENABLED', 'true');
-            deleteAllSapTriggers_();
-
-            // Interval Trigger
+            // Daily Snapshot (Fixed at 6 AM after US Market Close) linked to Daily Close Routine
+            ScriptApp.newTrigger('runDailyCloseRoutine').timeBased().everyDays(1).atHour(6).create();
+        } else {
+            // Interval Mode: Run main sync every X hours
             ScriptApp.newTrigger('runAutomationMaster').timeBased().everyHours(interval).create();
-            // Snapshot Trigger
-            ScriptApp.newTrigger('autoRecordDailyValues').timeBased().everyDays(1).atHour(1).create();
 
-            ui.alert(`[OK] 排程已啟動。\n- 戰略報告: 每 ${interval} 小時執行一次\n- 資產快照: 每天 01:00 AM`);
+            // Daily Snapshot (Fixed at 6 AM after US Market Close) linked to Daily Close Routine
+            ScriptApp.newTrigger('runDailyCloseRoutine').timeBased().everyDays(1).atHour(6).create();
         }
+
+        // System Health Check (Weekly)
+        ScriptApp.newTrigger('updateDailyRoutine').timeBased().everyWeeks(1).onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(8).create();
+
+        ui.alert(`[OK] 排程已設定。\n模式: ${mode}\n頻率/時間: ${mode === 'DAILY' ? hour + ':00' : '每 ' + interval + ' 小時'}`);
+    } else {
+        ui.alert("[INFO] 排程功能目前已停用 (SCHEDULER_CONFIG.IS_ENABLED = false)");
     }
+}
+
+function deleteAllSapTriggers_() {
+    const triggers = ScriptApp.getProjectTriggers();
+    triggers.forEach(trigger => {
+        const func = trigger.getHandlerFunction();
+        if (func === 'runDailyInvestmentCheck' || func === 'autoRecordDailyValues' || func === 'runDailyCloseRoutine' || func === 'updateAllPrices' || func === 'runAutomationMaster' || func === 'updateDailyRoutine') {
+            ScriptApp.deleteTrigger(trigger);
+        }
+    });
 }
 
 function stopScheduler() {

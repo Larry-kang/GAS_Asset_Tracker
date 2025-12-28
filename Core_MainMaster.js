@@ -52,7 +52,39 @@ function runAutomationMaster() {
     LogService.error(`CRITICAL FAILURE: ${e.toString()}`, context);
     ss.toast('[ERROR] Sync failed: ' + e.message);
 
-    const email = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAIL');
     if (email) MailApp.sendEmail(email, "[CRITICAL] SAP Sync Failed", e.toString());
+  }
+}
+
+/**
+ * [Daily Close Routine]
+ * Aggregates all daily-end operations:
+ * 1. Force Sync (Updates Prices & Balances)
+ * 2. Force Flush (Recalculate Formulas)
+ * 3. Take Snapshot (Record Daily Value)
+ */
+function runDailyCloseRoutine() {
+  const context = "DailyClose";
+  LogService.info("Starting Daily Close Routine...", context);
+
+  try {
+    // Step 1: Force Sync
+    runAutomationMaster();
+
+    // Step 2: Force Flush & Wait
+    // Spreadsheets sometimes need time to propagate formula calculations after data entry
+    SpreadsheetApp.flush();
+    Utilities.sleep(5000); // Wait 5 seconds for formulas to update
+
+    // Step 3: Take Snapshot
+    LogService.info("Executing Daily Snapshot...", context);
+    autoRecordDailyValues();
+
+    LogService.info("Daily Close Routine Completed Successfully.", context);
+
+  } catch (e) {
+    LogService.error(`Daily Close Routine Failed: ${e.toString()}`, context);
+    const email = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAIL');
+    if (email) MailApp.sendEmail(email, "【錯誤】每日結算流程失敗", e.toString());
   }
 }
