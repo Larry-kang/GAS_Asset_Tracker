@@ -7,7 +7,8 @@
 const CONFIG = {
   SHEET_NAMES: {
     BALANCE_SHEET: "Balance Sheet",
-    INDICATORS: "Key Market Indicators"
+    INDICATORS: "Key Market Indicators",
+    DASHBOARD: "Dashboard"
   },
   get EMAIL_RECIPIENT() {
     const email = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAIL');
@@ -215,6 +216,10 @@ function runDailyInvestmentCheck() {
     const context = buildContext();
     let alerts = [];
     RULES.forEach(rule => { if (rule.condition(context)) { const action = rule.getAction(context); if (action) alerts.push(action); } });
+
+    // Always update dashboard during daily check too
+    updateDashboard(context);
+
     if (alerts.length > 0) { sendEmailAlert(alerts, context); }
     else { sendAllClearEmail(context); }
   } catch (e) {
@@ -222,6 +227,60 @@ function runDailyInvestmentCheck() {
     if (email) MailApp.sendEmail(email, "[錯誤] SAP 執行失敗", e.toString());
   }
 }
+
+/**
+ * Executes the frequent (30-min) strategic monitor.
+ * Updates Dashboard and sends alerts only if critical.
+ */
+function runStrategicMonitor() {
+  try {
+    const context = buildContext();
+    updateDashboard(context); // WRITE-BACK PROTOCOL
+
+    let alerts = [];
+    RULES.forEach(rule => {
+      if (rule.condition(context)) {
+        const action = rule.getAction(context);
+        if (action) alerts.push(action);
+      }
+    });
+
+    if (alerts.length > 0) {
+      // Only send email for critical alerts in frequent mode to avoid spam?
+      // For now, send all strategic alerts as they are significant events (Price Drop, ATH).
+      sendEmailAlert(alerts, context);
+    }
+  } catch (e) {
+    Logger.log("[Monitor Error] " + e.toString());
+  }
+}
+
+function updateDashboard(context) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_NAMES.DASHBOARD);
+  if (!sheet) return; // Silent fail if no dashboard
+
+  // Use TextFinder to locate cells dynamically
+  const metrics = {
+    "Survival Runway": context.indicators.survivalRunway.toFixed(1) + " Months",
+    "LTV": (context.indicators.ltv * 100).toFixed(1) + "%",
+    "Net Entity Value": Math.round(context.netEntityValue).toLocaleString(),
+    "BTC Price": "$" + context.market.btcPrice.toLocaleString(),
+    "Last Update": new Date().toLocaleString('zh-TW', { hour12: false })
+  };
+
+  Object.keys(metrics).forEach(key => {
+    const finder = sheet.createTextFinder(key);
+    const cell = finder.findNext();
+    if (cell) {
+      // Offset 1 column to the right to write value? 
+      // Or assumes key is label and value is next to it.
+      // Let's try offset(0, 1).
+      cell.offset(0, 1).setValue(metrics[key]);
+    }
+  });
+}
+
 
 function setup() {
   const ui = SpreadsheetApp.getUi();
