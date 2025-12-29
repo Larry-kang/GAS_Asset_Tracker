@@ -1,145 +1,111 @@
-/**
+ï»¿/**
  * Test_SAP_Simulation.js
- * ¿W¥ßÅçÃÒ¸}¥»¡G¥Î©ó¼ÒÀÀ¦UºØ¥«³õ±¡¹Ò¡A´ú¸Õ SAP v24.5 ÅŞ¿è¤ÏÀ³¡C
- * ¤£·|Åª¨ú¯u¹ê¸Õºâªí¡A¤£·|µo°e Email¡C
- * 
- * ¨Ï¥Î¤è¦¡¡G¦b GAS ½s¿è¾¹¤¤¿ï¾Ü 'debugSAPLogic' ¨ç¦¡¨Ã°õ¦æ¡C
+ * Sandbox for testing SAP v24.5 Logic without executing trades.
+ * Logs output to GAS Console.
  */
 
+// Mock Dependencies
+const MOCK_DATA = {
+  BALANCE_SHEET: [
+    ["Ticker", "Amount", "Value_TWD", "Purpose"],
+    ["BTC_Spot", 0.5, 1575000, "Layer 1: Digital Reserve"],
+    ["00713", 1000, 50000, "Layer 2: Credit Base"],
+    ["USDT", 2000, 65000, "Layer 3: Tactical Liquidity"],
+    ["ETH", 2, 100000, "Speculation"]
+  ],
+  INDICATORS: {
+    "SAP_Base_ATH": 70000,
+    "Current_BTC_Price": 65000,
+    "Total_Martingale_Spent": 50000,
+    "MAX_MARTINGALE_BUDGET": 500000,
+    "L1_Spot_Ratio": 0.50, // Mock Low
+    "Total_BTC_Ratio": 0.40,
+    "MONTHLY_DEBT_COST": 15000
+  }
+};
+
 function debugSAPLogic() {
-    Logger.log("=== SAP v24.5 ÅŞ¿è¼ÒÀÀ´ú¸Õ¶}©l ===");
+  Logger.log("=== SAP v24.5 é‚è¼¯æ¨¡æ“¬æ¸¬è©¦é–‹å§‹ ===");
 
-    // 1. ´ú¸Õ±¡¹Ò¡G¥¿±`¥«³õ (Normal)
-    runScenario("±¡¹Ò A: ¥¿±`¥«³õ (¥­½L¾_Àú)", {
-        btcPrice: 60000,
-        sapBaseATH: 70000,
-        totalMartingaleSpent: 0,
-        maxMartingaleBudget: 437000,
-        indicators: {
-            l1SpotRatio: 0.65, // Healthy
-            totalBtcRatio: 0.70,
-            survivalRunway: 35.0,
-            maintenanceRatio: 3.0,
-            isValid: true
-        }
-    });
+  // Scenario 1: Normal
+  runScenario("æƒ…å¢ƒ A: æ­£å¸¸å¸‚å ´ (å¹³ç›¤éœ‡ç›ª)", { btcPrice: 65000, baseAth: 70000 });
 
-    // 2. ´ú¸Õ±¡¹Ò¡GATH ¬ğ¯} (New ATH)
-    runScenario("±¡¹Ò B: ¬ğ¯}·s°ª (ATH Detected)", {
-        btcPrice: 75000,
-        sapBaseATH: 70000, // 70k * 1.05 = 73500. Current 75k > 73.5k. Should trigger.
-        totalMartingaleSpent: 0,
-        maxMartingaleBudget: 437000,
-        indicators: {
-            l1SpotRatio: 0.65,
-            totalBtcRatio: 0.75,
-            survivalRunway: 35.0,
-            maintenanceRatio: 3.5,
-            isValid: true
-        }
-    });
+  // Scenario 2: ATH Breakout
+  runScenario("æƒ…å¢ƒ B: çªç ´æ–°é«˜ (ATH Detected)", { btcPrice: 75000, baseAth: 70000 });
 
-    // 3. ´ú¸Õ±¡¹Ò¡Gª®À»¤âÄ²µo (Sniper Level 1)
-    runScenario("±¡¹Ò C: ¼É¶^ª®À» (Sniper Level 1: -40%)", {
-        btcPrice: 42000, // 70k * 0.6 = 42k. Exactly -40%.
-        sapBaseATH: 70000,
-        totalMartingaleSpent: 0,
-        maxMartingaleBudget: 437000,
-        indicators: {
-            l1SpotRatio: 0.65,
-            totalBtcRatio: 0.60,
-            survivalRunway: 30.0,
-            maintenanceRatio: 2.5,
-            isValid: true
-        }
-    });
+  // Scenario 3: Sniper Trigger
+  runScenario("æƒ…å¢ƒ C: æš´è·Œç‹™æ“Š (Sniper Level 1: -40%)", { btcPrice: 42000, baseAth: 70000 }); // 42k is -40% of 70k
 
-    // 4. ´ú¸Õ±¡¹Ò¡G²{ª÷¬y­«¾É¦V - ¸É²{³f (Need Spot)
-    runScenario("±¡¹Ò D: ¬Õ¾l¤À°t (²{³f¤£¨¬)", {
-        btcPrice: 60000,
-        sapBaseATH: 70000,
-        totalMartingaleSpent: 0,
-        maxMartingaleBudget: 437000,
-        surplus: 50000, // Has cash
-        indicators: {
-            l1SpotRatio: 0.50, // < 60% Target
-            totalBtcRatio: 0.55,
-            survivalRunway: 40.0,
-            maintenanceRatio: 3.0,
-            isValid: true
-        }
-    });
+  // Scenario 4: Cashflow Rerouting (L1 Low)
+  runScenario("æƒ…å¢ƒ D: ç›ˆé¤˜åˆ†é… (ç¾è²¨ä¸è¶³)", { 
+      btcPrice: 65000, 
+      baseAth: 70000, 
+      l1Ratio: 0.50, 
+      surplus: 100000 
+  });
 
-    // 5. ´ú¸Õ±¡¹Ò¡G²{ª÷¬y­«¾É¦V - Å@«°ªe (Overheated)
-    runScenario("±¡¹Ò E: ¬Õ¾l¤À°t (¹L¼ö¨¾¿m)", {
-        btcPrice: 60000,
-        sapBaseATH: 70000,
-        totalMartingaleSpent: 0,
-        maxMartingaleBudget: 437000,
-        surplus: 50000,
-        indicators: {
-            l1SpotRatio: 0.65,
-            totalBtcRatio: 0.85, // > 80%
-            survivalRunway: 40.0,
-            maintenanceRatio: 3.0,
-            isValid: true
-        }
-    });
+  // Scenario 5: Cashflow Rerouting (Overheated)
+  runScenario("æƒ…å¢ƒ E: ç›ˆé¤˜åˆ†é… (éç†±é˜²ç¦¦)", { 
+      btcPrice: 65000, 
+      baseAth: 70000, 
+      l1Ratio: 0.85, 
+      totalBtcRatio: 0.85, 
+      surplus: 100000 
+  });
 
-    Logger.log("=== ´ú¸Õµ²§ô ===");
+  Logger.log("=== æ¸¬è©¦çµæŸ ===");
 }
 
-function runScenario(name, data) {
-    Logger.log("\n--- " + name + " ---");
-
-    // ¼ÒÀÀ Context ª«¥ó
-    const mockContext = {
-        market: {
-            btcPrice: data.btcPrice,
-            sapBaseATH: data.sapBaseATH,
-            totalMartingaleSpent: data.totalMartingaleSpent,
-            maxMartingaleBudget: data.maxMartingaleBudget,
-            surplus: data.surplus || 0,
-            usdTwdRate: 32.5
-        },
-        indicators: {
-            l1SpotRatio: data.indicators.l1SpotRatio,
-            totalBtcRatio: data.indicators.totalBtcRatio,
-            survivalRunway: data.indicators.survivalRunway,
-            maintenanceRatio: data.indicators.maintenanceRatio,
-            binanceMaintenanceRatio: 3.0,
-            isValid: data.indicators.isValid,
-            ltv: 0.3
-        },
-        rebalanceTargets: [], // default empty
-        phase: "Simulation",
-        portfolioSummary: {},
-        pledgeGroups: [],
-        netEntityValue: 1000000,
-        totalGrossAssets: 1500000,
-        reserve: 100000
-    };
-
-    // °õ¦æ³W«hÀË¬d
-    let triggered = false;
-    RULES.forEach(rule => {
-        try {
-            if (rule.condition(mockContext)) {
-                const result = rule.getAction(mockContext);
-                if (result) {
-                    Logger.log(`[Ä²µo³W«h] ${rule.name}`);
-                    Logger.log(`   > µ¥¯Å: ${result.level}`);
-                    Logger.log(`   > °T®§: ${result.message}`);
-                    Logger.log(`   > ¦æ°Ê: ${result.action}`);
-                    triggered = true;
-                }
-            }
-        } catch (e) {
-            Logger.log(`[¿ù»~] ³W«h ${rule.name} °õ¦æ¥¢±Ñ: ${e.message}`);
-        }
-    });
-
-    if (!triggered) {
-        Logger.log("[ÀRÀq] µLÄ²µo¥ô¦óÄµ³ø©Î¦æ°Ê¡C");
+function runScenario(name, overrides) {
+  Logger.log("\n--- " + name + " ---");
+  
+  // Build Mock Context
+  const context = buildMockContext(overrides);
+  
+  let triggered = false;
+  RULES.forEach(rule => {
+    if (rule.condition(context)) {
+      const result = rule.getAction(context);
+      if (result) {
+        triggered = true;
+        Logger.log("[è§¸ç™¼è¦å‰‡] " + rule.name);
+        Logger.log("   > ç­‰ç´š: " + result.level);
+        Logger.log("   > è¨Šæ¯: " + result.message);
+        Logger.log("   > è¡Œå‹•: " + result.action);
+      }
     }
+  });
+  
+  if (!triggered) {
+    Logger.log("[éœé»˜] ç„¡è§¸ç™¼ä»»ä½•è­¦å ±æˆ–è¡Œå‹•ã€‚");
+  }
+}
+
+function buildMockContext(overrides) {
+  const market = {
+    btcPrice: overrides.btcPrice || 60000,
+    sapBaseATH: overrides.baseAth || 70000,
+    totalMartingaleSpent: overrides.spent || 0,
+    maxMartingaleBudget: 500000,
+    surplus: overrides.surplus || 0
+  };
+
+  const indicators = {
+    isValid: true,
+    maintenanceRatio: 3.0,
+    binanceMaintenanceRatio: 2.5,
+    l1SpotRatio: overrides.l1Ratio !== undefined ? overrides.l1Ratio : 0.65,
+    totalBtcRatio: overrides.totalBtcRatio !== undefined ? overrides.totalBtcRatio : 0.65,
+    survivalRunway: 12,
+    ltv: 0.2
+  };
+
+  return {
+    market,
+    indicators,
+    phase: "Simulation",
+    rebalanceTargets: [],
+    netEntityValue: 2000000,
+    totalGrossAssets: 3000000 // Mock Total
+  };
 }

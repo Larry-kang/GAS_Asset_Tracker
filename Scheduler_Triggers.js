@@ -1,46 +1,46 @@
-/**
+ï»¿/**
  * Scheduler_Triggers.js
  * Handles the creation and management of time-based triggers for SAP v24.5.
  */
 
 function setupScheduledTriggers() {
-    // Try to get UI environment, fallback to Logger if running in standalone/headless
-    let ui = null;
-    try {
-        ui = SpreadsheetApp.getUi();
-    } catch (e) {
-        Logger.log("[Info] UI environment not available. Using Logger instead.");
-    }
+  // Try to get UI environment, fallback to Logger if running in standalone/headless
+  let ui = null;
+  try {
+    ui = SpreadsheetApp.getUi();
+  } catch (e) {
+    Logger.log("[Info] UI environment not available. Using Logger instead.");
+  }
 
-    const props = PropertiesService.getScriptProperties();
+  const props = PropertiesService.getScriptProperties();
+  
+  // 1. Clear Existing Triggers to prevent duplicates
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(t => ScriptApp.deleteTrigger(t));
 
-    // 1. Clear Existing Triggers to prevent duplicates
-    const triggers = ScriptApp.getProjectTriggers();
-    triggers.forEach(t => ScriptApp.deleteTrigger(t));
+  // 2. Create "Heartbeat" Trigger (Every 30 Minutes)
+  // Calls runAutomationMaster -> runStrategicMonitor
+  ScriptApp.newTrigger('runAutomationMaster')
+    .timeBased()
+    .everyMinutes(30)
+    .create();
 
-    // 2. Create "Heartbeat" Trigger (Every 30 Minutes)
-    // Calls runAutomationMaster -> runStrategicMonitor
-    ScriptApp.newTrigger('runAutomationMaster')
-        .timeBased()
-        .everyMinutes(30)
-        .create();
+  // 3. Create "Daily Close" Trigger (Daily at 1 AM)
+  // Calls runDailyCloseRoutine -> Snapshot + Daily Email
+  ScriptApp.newTrigger('runDailyCloseRoutine')
+    .timeBased()
+    .everyDays(1)
+    .atHour(1)
+    .create();
 
-    // 3. Create "Daily Close" Trigger (Daily at 1 AM)
-    // Calls runDailyCloseRoutine -> Snapshot + Daily Email
-    ScriptApp.newTrigger('runDailyCloseRoutine')
-        .timeBased()
-        .everyDays(1)
-        .atHour(1)
-        .create();
+  const msg = "ç³»çµ±å‡ç´šå®Œæˆ (SAP v24.5)\n\n" +
+              "- æˆ°ç•¥ç›£æ§ (Strategic Monitor): æ¯ 30 åˆ†é˜åŸ·è¡Œä¸€æ¬¡ (Dashboard å¯«å› + è­¦å ±)\n" +
+              "- æ¯æ—¥çµç®— (Daily Close): æ¯å¤©å‡Œæ™¨ 01:00 (å¿«ç…§ + æ—¥å ±)\n\n" +
+              "Digital Sovereignty Established.";
 
-    const msg = "¨t²Î¤É¯Å§¹¦¨ (SAP v24.5)\n\n" +
-        "- ¾Ô²¤ºÊ±± (Strategic Monitor): ¨C 30 ¤ÀÄÁ°õ¦æ¤@¦¸ (Dashboard ¼g¦^ + Äµ³ø)\n" +
-        "- ¨C¤éµ²ºâ (Daily Close): ¨C¤Ñ­â±á 01:00 (§Ö·Ó + ¤é³ø)\n\n" +
-        "Digital Sovereignty Established.";
-
-    if (ui) {
-        ui.alert(msg);
-    } else {
-        Logger.log(msg);
-    }
+  if (ui) {
+    ui.alert(msg);
+  } else {
+    Logger.log(msg);
+  }
 }
