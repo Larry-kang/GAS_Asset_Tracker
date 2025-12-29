@@ -348,7 +348,7 @@ function buildContext() {
     maintenanceRatio: (pledgeGroups.find(g => g.name === "Pledge") || pledgeGroups[0] || { ratio: 0 }).ratio,
     binanceMaintenanceRatio: (pledgeGroups.find(g => g.name === "Binance") || { ratio: 0 }).ratio,
     l1SpotRatio: indicatorsRaw.L1_Spot_Ratio || 0,
-    totalBtcRatio: indicatorsRaw.Total_BTC_Ratio || 0,
+    totalBtcRatio: totalGrossAssets > 0 ? (calculateGroupValue(portfolioSummary, CONFIG.ASSET_GROUPS[0]) / totalGrossAssets) : 0,
     survivalRunway: survivalRunway,
     ltv: totalGrossAssets > 0 ? (totalGrossAssets - netEntityValue) / totalGrossAssets : 0
   };
@@ -376,7 +376,7 @@ function fetchMarketIndicators(sheet) {
     "Total_Martingale_Spent",
     "L1_Spot_Ratio",
     "Current_BTC_Price",
-    "Total_BTC_Ratio",
+    // "Total_BTC_Ratio", // Deprecated: Calculated in code v24.5
     "MAX_MARTINGALE_BUDGET",
     "MONTHLY_DEBT_COST"
   ];
@@ -428,6 +428,12 @@ function aggregatePortfolio(rawPortfolio) {
     summary[item.ticker] += item.value;
   });
   return summary;
+}
+
+function calculateGroupValue(summary, group) {
+  let value = 0;
+  group.tickers.forEach(t => value += (summary[t] || 0));
+  return value;
 }
 
 function getRebalanceTargets(portfolio, assets, market) {
