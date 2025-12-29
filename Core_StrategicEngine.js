@@ -32,7 +32,7 @@ const CONFIG = {
   },
   BTC_MARTINGALE: {
     ENABLED: true,
-    BASE_AMOUNT: 20000, // Adjusted base unit for sniper
+    BASE_AMOUNT: 20000,
     LEVELS: [
       { drop: -0.40, multiplier: 1, name: "Level 1 (Sniper Zone)" },
       { drop: -0.50, multiplier: 2, name: "Level 2 (Deep Value)" },
@@ -41,7 +41,7 @@ const CONFIG = {
     ]
   },
   ASSET_GROUPS: [
-    { name: "Layer 1: Digital Reserve (Attack)", target: 0.60, tickers: ["IBIT", "BTC_Spot", "BTC"] }, // Adjusted to 60% per request
+    { name: "Layer 1: Digital Reserve (Attack)", target: 0.60, tickers: ["IBIT", "BTC_Spot", "BTC"] },
     { name: "Layer 2: Credit Base (Defend)", target: 0.30, tickers: ["00713", "00662", "QQQ"] },
     { name: "Layer 3: Tactical Liquidity", target: 0.10, tickers: ["BOXX", "CASH_TWD", "USDT", "USDC"] }
   ],
@@ -75,7 +75,6 @@ const RULES = [
       const currentDrop = (context.market.btcPrice - context.market.sapBaseATH) / context.market.sapBaseATH;
       const strategy = CONFIG.BTC_MARTINGALE;
 
-      // Find the deepest triggered level
       let activeLevel = null;
       for (let i = strategy.LEVELS.length - 1; i >= 0; i--) {
         if (currentDrop <= strategy.LEVELS[i].drop) {
@@ -84,13 +83,7 @@ const RULES = [
         }
       }
 
-      // Check if we already executed this level? (Simple logic: based on spent amount or just simple alert)
-      // Since we don't track per-level execution state in sheet yet (only total spent), 
-      // we will alert if price is in zone. 
-      // To prevent spam, arguably this relies on the user updating 'Total_Martingale_Spent' after buying.
-
       if (activeLevel) {
-        // Calculate estimated cost
         const estCost = strategy.BASE_AMOUNT * activeLevel.multiplier;
         if (context.market.totalMartingaleSpent + estCost > context.market.maxMartingaleBudget) {
           return {
@@ -217,7 +210,6 @@ function runDailyInvestmentCheck() {
     let alerts = [];
     RULES.forEach(rule => { if (rule.condition(context)) { const action = rule.getAction(context); if (action) alerts.push(action); } });
 
-    // Always update dashboard during daily check too
     updateDashboard(context);
 
     if (alerts.length > 0) { sendEmailAlert(alerts, context); }
@@ -235,7 +227,7 @@ function runDailyInvestmentCheck() {
 function runStrategicMonitor() {
   try {
     const context = buildContext();
-    updateDashboard(context); // WRITE-BACK PROTOCOL
+    updateDashboard(context);
 
     let alerts = [];
     RULES.forEach(rule => {
@@ -246,8 +238,6 @@ function runStrategicMonitor() {
     });
 
     if (alerts.length > 0) {
-      // Only send email for critical alerts in frequent mode to avoid spam?
-      // For now, send all strategic alerts as they are significant events (Price Drop, ATH).
       sendEmailAlert(alerts, context);
     }
   } catch (e) {
@@ -258,7 +248,7 @@ function runStrategicMonitor() {
 function updateDashboard(context) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(CONFIG.SHEET_NAMES.DASHBOARD);
-  if (!sheet) return; // Silent fail if no dashboard
+  if (!sheet) return;
 
   // Use TextFinder to locate cells dynamically
   const metrics = {
@@ -273,14 +263,10 @@ function updateDashboard(context) {
     const finder = sheet.createTextFinder(key);
     const cell = finder.findNext();
     if (cell) {
-      // Offset 1 column to the right to write value? 
-      // Or assumes key is label and value is next to it.
-      // Let's try offset(0, 1).
       cell.offset(0, 1).setValue(metrics[key]);
     }
   });
 }
-
 
 function setup() {
   const ui = SpreadsheetApp.getUi();
@@ -323,7 +309,7 @@ function buildContext() {
 
   // Phase 1: 穩健數據收集
   const rawPortfolio = getPortfolioData(balanceSheet);
-  const indicatorsRaw = fetchMarketIndicators(indicatorSheet); // Updated to fetch mapped data
+  const indicatorsRaw = fetchMarketIndicators(indicatorSheet);
 
   // Phase 2: 資產/債務分離與聚合
   const portfolioSummary = aggregatePortfolio(rawPortfolio);
@@ -333,35 +319,30 @@ function buildContext() {
   // 淨實體價值
   const netEntityValue = Object.values(portfolioSummary).reduce((sum, val) => sum + val, 0);
 
-  // Phase 3: 市場數據解析 (From Indicators Sheet)
+  // Phase 3: 市場數據解析
   let market = {
     btcPrice: indicatorsRaw.Current_BTC_Price || 0,
     sapBaseATH: indicatorsRaw.SAP_Base_ATH || 0,
     totalMartingaleSpent: indicatorsRaw.Total_Martingale_Spent || 0,
     maxMartingaleBudget: indicatorsRaw.MAX_MARTINGALE_BUDGET || 437000,
-    usdTwdRate: 32.5, // Default backup
-    surplus: 0 // Will calc below
+    usdTwdRate: 32.5,
+    surplus: 0
   };
 
-  // Calc Surplus / Runway
   const monthlyDebt = indicatorsRaw.MONTHLY_DEBT_COST || 12967;
-  // Estimate Cash (TWD + USDT + USDC)
   const liquidity = (portfolioSummary["CASH_TWD"] || 0) + (portfolioSummary["USDT"] || 0) + (portfolioSummary["USDC"] || 0);
   const survivalRunway = monthlyDebt > 0 ? (liquidity / monthlyDebt) : 99;
 
-  // Surplus logic: Simple definition = Liquidity - (6 * MonthlyDebt) ? Or just use raw liquidity flow? 
-  // User logic implies: Surplus = "Idle Cash". Let's assume Surplus = Liquidity - SafetyBuffer (e.g. 3 months debt)
-  market.surplus = liquidity - (monthlyDebt * 3); // Reserve 3 months
+  market.surplus = liquidity - (monthlyDebt * 3);
 
   // Phase 4: 自動質押引擎
-  const pledgeGroups = calculateAutoPledgeRatios(rawPortfolio, {}); // Pass empty raw for now, logic update needed if we rely on sheet config
+  const pledgeGroups = calculateAutoPledgeRatios(rawPortfolio, {});
 
   // Phase 5: 再平衡目標
   const portfolioForRebalance = {};
   Object.keys(portfolioSummary).forEach(k => portfolioForRebalance[k] = { Market_Value_TWD: portfolioSummary[k] });
   const targets = getRebalanceTargets(portfolioForRebalance, totalGrossAssets, market);
 
-  // 舊版兼容橋接 / 新指標
   const indicators = {
     isValid: pledgeGroups.length > 0,
     maintenanceRatio: (pledgeGroups.find(g => g.name === "Pledge") || pledgeGroups[0] || { ratio: 0 }).ratio,
@@ -387,12 +368,9 @@ function buildContext() {
 }
 
 function fetchMarketIndicators(sheet) {
-  // Reads the Key Market Indicators sheet and maps key-value pairs
-  // Assumes Column A = Key, Column B = Value
   const data = sheet.getDataRange().getValues();
   const result = {};
 
-  // Standard Keys to look for
   const keysOfInterest = [
     "SAP_Base_ATH",
     "Total_Martingale_Spent",
@@ -413,7 +391,6 @@ function fetchMarketIndicators(sheet) {
 }
 
 function calculateAutoPledgeRatios(rawPortfolio, indicatorsRaw) {
-  // simplified for brevity, relying on standard thresholds
   const labelMap = {};
   rawPortfolio.forEach(item => {
     const label = item.purpose ? item.purpose.trim() : "";
@@ -456,7 +433,6 @@ function aggregatePortfolio(rawPortfolio) {
 function getRebalanceTargets(portfolio, assets, market) {
   let targets = [];
   if (assets <= 0) return targets;
-  // Simplified rebalance logic integration
   return targets;
 }
 
