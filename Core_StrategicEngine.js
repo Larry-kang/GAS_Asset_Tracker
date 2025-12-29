@@ -453,7 +453,7 @@ function getPortfolioData(sheet) {
 }
 
 function generatePortfolioSnapshot(context) {
-  const { market, pledgeGroups, netEntityValue, indicators } = context;
+  const { market, pledgeGroups, netEntityValue, indicators, totalGrossAssets, portfolioSummary } = context;
 
   let s = "\n[I] 市場情報 (MARKET INTEL)\n";
   s += "- BTC 現貨價格: $" + market.btcPrice.toLocaleString() + " USD\n";
@@ -465,12 +465,27 @@ function generatePortfolioSnapshot(context) {
   s += "\n[II] 生存指標 (SURVIVAL METRICS)\n";
   s += "- 生存跑道: " + indicators.survivalRunway.toFixed(1) + " 個月\n";
   s += "- 淨值: " + Math.round(netEntityValue).toLocaleString() + " TWD\n";
+  s += "- 總資產: " + Math.round(totalGrossAssets).toLocaleString() + " TWD\n";
+  s += "- 總負債: " + Math.round(totalGrossAssets - netEntityValue).toLocaleString() + " TWD\n";
+  s += "- 負債比 (LTV): " + (indicators.ltv * 100).toFixed(1) + "%\n";
 
   if (pledgeGroups.length > 0) {
     pledgeGroups.forEach(group => {
       s += "- 維持率 (" + group.name + "): " + group.ratio.toFixed(2) + "\n";
     });
   }
+
+  s += "\n[III] 資產配置 (ASSET ALLOCATION)\n";
+  CONFIG.ASSET_GROUPS.forEach(group => {
+    let groupValue = 0;
+    group.tickers.forEach(t => groupValue += (portfolioSummary[t] || 0));
+
+    // Safety check for Noise Assets not in groups might be needed, but for now stick to groups
+    // Actually, calculate total based on group tickers for percentage might differ from totalGrossAssets if there are unclassified assets.
+    // Use totalGrossAssets as denominator.
+    const pct = totalGrossAssets > 0 ? (groupValue / totalGrossAssets * 100) : 0;
+    s += "- " + group.name.split(":")[0] + ": " + Math.round(groupValue).toLocaleString() + " (" + pct.toFixed(1) + "%)\n";
+  });
 
   s += "----------------------------------------\n";
   s += "最後更新: " + new Date().toLocaleString('zh-TW', { hour12: false });
