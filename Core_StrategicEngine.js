@@ -347,7 +347,7 @@ function buildContext() {
     isValid: pledgeGroups.length > 0,
     maintenanceRatio: (pledgeGroups.find(g => g.name === "Pledge") || pledgeGroups[0] || { ratio: 0 }).ratio,
     binanceMaintenanceRatio: (pledgeGroups.find(g => g.name === "Binance") || { ratio: 0 }).ratio,
-    l1SpotRatio: indicatorsRaw.L1_Spot_Ratio || 0,
+    l1SpotRatio: totalGrossAssets > 0 ? (calculateGroupValue(portfolioSummary, CONFIG.ASSET_GROUPS[0]) / totalGrossAssets) : 0,
     totalBtcRatio: totalGrossAssets > 0 ? (calculateGroupValue(portfolioSummary, CONFIG.ASSET_GROUPS[0]) / totalGrossAssets) : 0,
     survivalRunway: survivalRunway,
     ltv: totalGrossAssets > 0 ? (totalGrossAssets - netEntityValue) / totalGrossAssets : 0
@@ -374,7 +374,7 @@ function fetchMarketIndicators(sheet) {
   const keysOfInterest = [
     "SAP_Base_ATH",
     "Total_Martingale_Spent",
-    "L1_Spot_Ratio",
+    // "L1_Spot_Ratio", // Deprecated: Calculated in code v24.5
     "Current_BTC_Price",
     // "Total_BTC_Ratio", // Deprecated: Calculated in code v24.5
     "MAX_MARTINGALE_BUDGET",
