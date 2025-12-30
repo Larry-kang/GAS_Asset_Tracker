@@ -48,12 +48,8 @@ function getOkxBalance() {
     }
 
     // --- 步驟 E: 寫入借貸表 ---
-    if (loanResult.success) {
-      updateLoanSheet_(ss, loanResult.data);
-    } else if (loanResult.status.includes('Forbidden')) {
-      // 若權限不足，嘗試清空或寫入提示
-      Logger.log("⚠️ 借貸抓取失敗 (Forbidden)：請檢查 API Key 是否開啟 'Read' 權限");
-    }
+    // 無論成功與否都呼叫，以便在失敗時寫入錯誤提示
+    updateLoanSheet_(ss, loanResult);
 
     const finalMsg = `OKX 同步完成！`;
     ss.toast(finalMsg);
@@ -64,15 +60,21 @@ function getOkxBalance() {
   }
 }
 
-// ... fetchOkxAccount_ (還原為純餘額抓取，移除 liab 混合邏輯) ...
+// ... fetchOkxAccount_ (MODIFIED: Net Balance = Avail + Frozen - Liab) ...
 function fetchOkxAccount_(baseUrl, apiKey, apiSecret, apiPassphrase) {
   const res = fetchOkxApi_(baseUrl, '/api/v5/account/balance', {}, apiKey, apiSecret, apiPassphrase);
   const balances = new Map();
 
   if (res.code === "0" && res.data && res.data[0] && res.data[0].details) {
     res.data[0].details.forEach(b => {
-      const total = (parseFloat(b.availBal) || 0) + (parseFloat(b.frozenBal) || 0);
-      if (total > 0) balances.set(b.ccy, total);
+      // 淨餘額 = 可用 + 凍結 - 負債 (liab)
+      // 若有負債，liab 會是正數，需減除
+      const total = (parseFloat(b.availBal) || 0) + (parseFloat(b.frozenBal) || 0) - (parseFloat(b.liab) || 0);
+
+      // 只要不等於 0 都要紀錄 (包含負值)
+      if (Math.abs(total) > 1e-8) {
+        balances.set(b.ccy, total);
+      }
     });
     return { success: true, status: "OK", data: balances };
   } else {
@@ -94,9 +96,12 @@ function fetchOkxEarn_(baseUrl, apiKey, apiSecret, apiPassphrase) {
 }
 
 // ... fetchOkxLoans_ (恢復並修正 endpoint) ...
+/**
+ * [模組 C] 獲取 Flexible Loan 訂單
+ * 注意：此 endpoint (orders) 雖然文件標示只需 Read 權限，但部分帳戶可能因風控需開啟 Trade 權限。
+ * 若回傳 Forbidden，這就是唯一解法。
+ */
 function fetchOkxLoans_(baseUrl, apiKey, apiSecret, apiPassphrase) {
-  // 嘗試使用 borrow-info 與 orders (先試 orders，因為它有明細)
-  // 若 Forbidden，則是用戶權限問題，無法透過改 endpoint 解決
   const endpoint = '/api/v5/finance/flexible-loan/orders';
   const res = fetchOkxApi_(baseUrl, endpoint, { state: 'alive' }, apiKey, apiSecret, apiPassphrase);
 
@@ -110,10 +115,16 @@ function fetchOkxLoans_(baseUrl, apiKey, apiSecret, apiPassphrase) {
     }));
     return { success: true, status: "OK", data: orders };
   } else {
-    // [Debug] Log specific error code
     const errorMsg = `Code: ${res.code}, Msg: ${res.msg}`;
     console.log(`[FetchLoans] Error: ${errorMsg}`);
-    return { success: false, status: `Info (${errorMsg})`, data: [] };
+
+    // 提供明確的 Debug 提示
+    let statusHint = errorMsg;
+    if (res.code == "50100" || (res.msg && res.msg.toLowerCase().includes("forbidden"))) {
+      statusHint = "Forbidden (Please try enabling 'Trade' permission on API Key)";
+    }
+
+    return { success: false, status: statusHint, data: [] };
   }
 }
 
@@ -137,19 +148,43 @@ function updateBalanceSheet_(ss, spotMap, earnMap) {
 }
 
 // ... updateLoanSheet_ (保持不變) ...
-function updateLoanSheet_(ss, orders) {
+// ... updateLoanSheet_ (MODIFIED: 支援錯誤顯示) ...
+function updateLoanSheet_(ss, loanResult) {
   const SHEET_NAME = 'OKX Loans';
   let sheet = ss.getSheetByName(SHEET_NAME);
-  if (!sheet && orders.length > 0) {
-    sheet = ss.insertSheet(SHEET_NAME);
-    sheet.getRange(1, 1, 1, 6).setValues([['Loan Coin', 'Debt', 'Collateral Coin', 'Collateral Amt', 'LTV', 'Updated']]);
-  } else if (!sheet) return;
+
+  // 若無工作表且有資料或有錯誤，則建立
+  if (!sheet) {
+    if (loanResult.success && loanResult.data.length > 0) {
+      sheet = ss.insertSheet(SHEET_NAME);
+      sheet.getRange(1, 1, 1, 6).setValues([['Loan Coin', 'Debt', 'Collateral Coin', 'Collateral Amt', 'LTV', 'Updated']]);
+    } else if (!loanResult.success) {
+      sheet = ss.insertSheet(SHEET_NAME);
+      sheet.getRange(1, 1, 1, 6).setValues([['Status', 'Details', 'Suggested Action', '', '', 'Updated']]);
+    } else {
+      return; // 沒錯也沒資料，不動作
+    }
+  }
 
   if (sheet.getLastRow() > 1) sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).clearContent();
 
-  if (orders.length > 0) {
+  if (loanResult.success && loanResult.data.length > 0) {
+    const orders = loanResult.data;
     const rows = orders.map(o => [o.loanCoin, o.totalDebt, o.collateralCoin, o.collateralAmount, o.currentLTV, new Date()]);
+    // 確保表頭回到正常模式 (如果之前變成錯誤顯示模式)
+    if (sheet.getRange(1, 2).getValue() !== 'Debt') {
+      sheet.getRange(1, 1, 1, 6).setValues([['Loan Coin', 'Debt', 'Collateral Coin', 'Collateral Amt', 'LTV', 'Updated']]);
+    }
     sheet.getRange(2, 1, rows.length, 6).setValues(rows);
+  } else if (!loanResult.success) {
+    // 顯示錯誤資訊
+    const errorMsg = loanResult.status;
+    const action = errorMsg.includes('Forbidden') ? "Enable 'Trade' Permission on API Key" : "Check Logs";
+    // 更改表頭以適應錯誤訊息
+    sheet.getRange(1, 1, 1, 6).setValues([['Status', 'Details', 'Suggested Action', '', '', 'Updated']]);
+    sheet.getRange(2, 1, 1, 6).setValues([['Error', errorMsg, action, '', '', new Date()]]);
+    // 紅色警示
+    sheet.getRange(2, 1, 1, 3).setFontColor('red');
   }
 }
 
