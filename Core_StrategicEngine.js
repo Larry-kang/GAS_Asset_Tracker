@@ -238,7 +238,8 @@ function runStrategicMonitor() {
     });
 
     if (alerts.length > 0) {
-      sendEmailAlert(alerts, context);
+      // sendEmailAlert(alerts, context); // [User Request 2025-12-30] 降噪模式：僅更新 Dashboard，不發信
+      Logger.log("[Monitor] Alerts generated but silenced (Daily Report only).");
     }
   } catch (e) {
     Logger.log("[Monitor Error] " + e.toString());
