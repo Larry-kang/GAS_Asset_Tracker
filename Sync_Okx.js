@@ -27,23 +27,21 @@ function getOkxBalance() {
 
     const logMessages = [];
 
-    // --- 步驟 A: 獲取帳戶餘額 (Spot/Funding) ---
-    ss.toast('正在獲取 OKX 帳戶餘額 (1/3)...');
+    // --- 步驟 A: 獲取帳戶餘額 (Spot/Funding) & 負債 (Liabilities) ---
+    ss.toast('正在獲取 OKX 帳戶與負債 (1/2)...');
     const accountResult = fetchOkxAccount_(baseUrl, apiKey, apiSecret, apiPassphrase);
     logMessages.push(`Account: ${accountResult.status}`);
     if (!accountResult.success) Logger.log(`Account Fetch Error: ${accountResult.status}`);
 
     // --- 步驟 B: 獲取理財餘額 (Simple Earn) ---
-    ss.toast('正在獲取 OKX 理財餘額 (2/3)...');
+    ss.toast('正在獲取 OKX 理財餘額 (2/2)...');
     const earnResult = fetchOkxEarn_(baseUrl, apiKey, apiSecret, apiPassphrase);
     logMessages.push(`Earn: ${earnResult.status}`);
     if (!earnResult.success) Logger.log(`Earn Fetch Error: ${earnResult.status}`);
 
-    // --- 步驟 C: 獲取借貸訂單 (Flexible Loans) ---
-    ss.toast('正在獲取 OKX 借貸資訊 (3/3)...');
-    const loanResult = fetchOkxLoans_(baseUrl, apiKey, apiSecret, apiPassphrase);
-    logMessages.push(`Loans: ${loanResult.status}`);
-    if (!loanResult.success) Logger.log(`Loan Fetch Error: ${loanResult.status}`);
+    // --- (已停用) 步驟 C: 獲取借貸訂單 (Flexible Loans) ---
+    // 因 User 回報權限 Forbidden (403)，改由從 Account Balance 直接讀取 "liab" (負債)
+    // const loanResult = fetchOkxLoans_(baseUrl, apiKey, apiSecret, apiPassphrase);
 
     // Console log for debugging
     console.log("===== OKX Update Log =====");
@@ -51,22 +49,49 @@ function getOkxBalance() {
 
     // --- 步驟 D: 整合並寫入資產表 (Balance Sheet) ---
     let balanceUpdated = false;
+    // accountResult.data is now { balances: Map, debts: Map }
+    const spotMap = accountResult.data ? accountResult.data.balances : new Map();
+    const debtMap = accountResult.data ? accountResult.data.debts : new Map();
+    const earnMap = earnResult.data || new Map();
+
     if (accountResult.success || earnResult.success) {
-      updateBalanceSheet_(ss, accountResult.data, earnResult.data);
+      updateBalanceSheet_(ss, spotMap, earnMap);
       balanceUpdated = true;
     } else {
       console.log("⚠️ Account 與 Earn 皆未更新，跳過寫入 'OKX Balance' 工作表");
     }
 
     // --- 步驟 E: 寫入借貸表 (Loan Sheet) ---
+    // 使用從 Account Balance 抓到的負債資料
     let loansUpdated = false;
-    if (loanResult.success) {
-      updateLoanSheet_(ss, loanResult.data);
+    if (debtMap.size > 0) {
+      // 轉換格式為 updateLoanSheet_ 接受的陣列
+      // 由於 Account Balance 只提供負債總額，無法區分對應的質押品，故 Collateral 顯示為 'Unified/Unknown'
+      const simulatedLoanOrders = [];
+      debtMap.forEach((amount, ccy) => {
+        simulatedLoanOrders.push({
+          loanCoin: ccy,
+          totalDebt: amount,
+          collateralCoin: 'Unified',
+          collateralAmount: 0,
+          currentLTV: 0 // 無法計算單一 LTV
+        });
+      });
+      updateLoanSheet_(ss, simulatedLoanOrders);
       loansUpdated = true;
+    } else {
+      // 如果沒有負債，也要更新空表 (或清除)
+      // 若原表有資料但現在沒負債，這裡選擇清除內容
+      // updateLoanSheet_(ss, []); // 視需求決定是否清空，目前保持若無資料則不動
+      if (accountResult.success) {
+        // 若成功讀取且無負債，嘗試清空舊資料 (判定為已還款)
+        // 但為了安全，暫不清空，僅 Log
+        Logger.log("No liabilities detected.");
+      }
     }
 
     // --- 最終通知 ---
-    const finalMsg = `OKX 同步完成！\n餘額: ${balanceUpdated ? '更新' : '跳過'}, 借貸: ${loansUpdated ? '更新' : '跳過'}`;
+    const finalMsg = `OKX 同步完成！\n餘額: ${balanceUpdated ? '更新' : '跳過'}, 借貸: ${loansUpdated ? '更新' : '無需更新'}`;
     ss.toast(finalMsg);
     Logger.log(finalMsg);
 
@@ -78,28 +103,33 @@ function getOkxBalance() {
 }
 
 /**
- * [模組 A] 獲取 Account 餘額 (含資金與交易帳戶)
+ * [模組 A] 獲取 Account 餘額 (含資金與交易帳戶) + 負債偵測
  * API: /api/v5/account/balance
+ * return: { success, status, data: { balances: Map, debts: Map } }
  */
 function fetchOkxAccount_(baseUrl, apiKey, apiSecret, apiPassphrase) {
   const res = fetchOkxApi_(baseUrl, '/api/v5/account/balance', {}, apiKey, apiSecret, apiPassphrase);
   const balances = new Map();
+  const debts = new Map();
 
   if (res.code === "0" && res.data && res.data[0] && res.data[0].details) {
     res.data[0].details.forEach(b => {
-      // OKX 回傳 availBal (可用) + frozenBal (凍結/掛單)
-      // 注意：cashBal 是現金餘額，eq 是權益(美金計價)，這裡是抓數量
-      // 我們使用 cashBal (現金餘額) 或 availBal + frozenBal。
-      // 通常 cashBal 包含了所有該幣種的數量 (除了借貸負債可能不在此顯現)
-      // 這裡採用 availBal + frozenBal 較為保險
+      // 1. 資產運算
       const total = (parseFloat(b.availBal) || 0) + (parseFloat(b.frozenBal) || 0);
       if (total > 0) {
         balances.set(b.ccy, total);
       }
+
+      // 2. 負債運算 (Extraction from liability field)
+      // liab: 幣種負債
+      const liability = parseFloat(b.liab) || 0;
+      if (liability > 0) {
+        debts.set(b.ccy, liability);
+      }
     });
-    return { success: true, status: "OK", data: balances };
+    return { success: true, status: "OK", data: { balances: balances, debts: debts } };
   } else {
-    return { success: false, status: `Failed (${res.msg || 'No Data'})`, data: balances };
+    return { success: false, status: `Failed (${res.msg || 'No Data'})`, data: { balances: balances, debts: debts } };
   }
 }
 
@@ -128,28 +158,11 @@ function fetchOkxEarn_(baseUrl, apiKey, apiSecret, apiPassphrase) {
 }
 
 /**
- * [模組 C] 獲取 Flexible Loan 訂單
- * API: /api/v5/finance/flexible-loan/orders (正在進行的訂單)
+ * [模組 C] (已停用) 獲取 Flexible Loan 訂單
+ * 僅保留代碼供參考，目前因權限問題不呼叫
  */
 function fetchOkxLoans_(baseUrl, apiKey, apiSecret, apiPassphrase) {
-  // 查詢狀態為 'alive' (有效) 的訂單
-  const res = fetchOkxApi_(baseUrl, '/api/v5/finance/flexible-loan/orders', { state: 'alive' }, apiKey, apiSecret, apiPassphrase);
-
-  if (res.code === "0" && res.data && Array.isArray(res.data)) {
-    // 轉換資料格式
-    const orders = res.data.map(order => ({
-      loanCoin: order.loanCcy,
-      totalDebt: parseFloat(order.loanAmt || order.borrowAmt || 0) + parseFloat(order.interest || 0), // 借款 + 利息
-      collateralCoin: order.collateralCcy,
-      collateralAmount: parseFloat(order.collateralAmt || 0),
-      currentLTV: parseFloat(order.curLtv || 0) // LTV
-    }));
-    return { success: true, status: "OK", data: orders };
-  } else {
-    // 404 或空資料
-    const msg = res.msg || 'No Loan Data';
-    return { success: res.code === "0", status: `Info (${msg})`, data: [] };
-  }
+  return { success: false, status: "Skipped (Forbidden)", data: [] };
 }
 
 /**
@@ -188,9 +201,6 @@ function updateLoanSheet_(ss, loanOrders) {
   const SHEET_NAME = 'OKX Loans';
   let sheet = ss.getSheetByName(SHEET_NAME);
 
-  // 如果有資料但沒分頁 -> 建立
-  // 如果有分頁 -> 清空並更新
-  // 如果沒資料且沒分頁 -> 不動作
   if (!sheet && loanOrders.length > 0) {
     sheet = ss.insertSheet(SHEET_NAME);
     sheet.getRange(1, 1, 1, 6).setValues([['Loan Coin', 'Debt', 'Collateral Coin', 'Collateral Amt', 'LTV', 'Updated']]);
@@ -218,11 +228,11 @@ function updateLoanSheet_(ss, loanOrders) {
 }
 
 /**
- * [私有工具] OKX API 連線核心
+ * [私有工具] OKX API 連線核心 (維持不變)
  */
 function fetchOkxApi_(baseUrl, endpoint, params, apiKey, apiSecret, apiPassphrase) {
   const method = 'GET';
-  const timestamp = new Date().toISOString(); // ISO format for OKX
+  const timestamp = new Date().toISOString();
 
   let queryString = '';
   if (params && Object.keys(params).length > 0) {
@@ -232,9 +242,6 @@ function fetchOkxApi_(baseUrl, endpoint, params, apiKey, apiSecret, apiPassphras
   }
 
   const url = baseUrl + endpoint + queryString;
-  // OKX 簽名規則: timestamp + method + requestPath (+ body if POST)
-  const stringToSign = timestamp + method + endpoint + queryString.replace('?', '?'); // Query string logic varies, OKX V5 usually includes query in path for sign
-  // 修正簽名路徑: 如果有 query params，必須包含在 endpoint 內進行簽名
   const signPath = endpoint + queryString;
   const stringToSignCorrect = timestamp + method + signPath;
 
