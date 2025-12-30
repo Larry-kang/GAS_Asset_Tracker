@@ -110,7 +110,10 @@ function fetchOkxLoans_(baseUrl, apiKey, apiSecret, apiPassphrase) {
     }));
     return { success: true, status: "OK", data: orders };
   } else {
-    return { success: false, status: `Info (${res.msg || 'No Data/Forbidden'})`, data: [] };
+    // [Debug] Log specific error code
+    const errorMsg = `Code: ${res.code}, Msg: ${res.msg}`;
+    console.log(`[FetchLoans] Error: ${errorMsg}`);
+    return { success: false, status: `Info (${errorMsg})`, data: [] };
   }
 }
 
