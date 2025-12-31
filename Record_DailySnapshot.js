@@ -15,23 +15,61 @@ const DESTINATION_SHEET_NAME_V2 = "每日資產價值變化";
 // =================================================================================
 // --- 2. 主執行函數 (Main Execution Function) ---
 // =================================================================================
-function autoRecordDailyValues() {
+function autoRecordDailyValues(context) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sourceSheet = ss.getSheetByName(SOURCE_SHEET_NAME_V2);
+    // 目的地分頁必須存在
     const destinationSheet = ss.getSheetByName(DESTINATION_SHEET_NAME_V2);
-
-    if (!sourceSheet) throw new Error(`找不到名為 "${SOURCE_SHEET_NAME_V2}" 的分頁。`);
     if (!destinationSheet) throw new Error(`找不到名為 "${DESTINATION_SHEET_NAME_V2}" 的分頁。請先建立此分頁。`);
 
-    // 步驟一：直接從指定儲存格讀取數據
-    const cashValue = sourceSheet.getRange("B2").getValue();
-    const stockValue = sourceSheet.getRange("B3").getValue();
-    const cryptoValue = sourceSheet.getRange("B4").getValue();
-    const cryptoliabilityValue = sourceSheet.getRange("B5").getValue();
-    const liabilityValue = sourceSheet.getRange("B6").getValue();
-    const netWorthValue = sourceSheet.getRange("B7").getValue();
-    const totalAssetValue = sourceSheet.getRange("D19").getValue();
+    let cashValue, stockValue, cryptoValue, cryptoliabilityValue, liabilityValue, netWorthValue, totalAssetValue;
+
+    if (context && context.portfolioSummary) {
+      // [Fast Path] 直接從計算上下文讀取 (SAP v24.5)
+      const s = context.portfolioSummary;
+
+      // Mapping Logic
+      // Cash: Cash + USDT + USDC
+      cashValue = (s["CASH_TWD"] || 0) + (s["USDT"] || 0) + (s["USDC"] || 0) + (s["BOXX"] || 0);
+
+      // Stock: US Stock + TW Stock + ETFs
+      stockValue = (s["QQQ"] || 0) + (s["00713"] || 0) + (s["00662"] || 0) + (s["TQQQ"] || 0);
+
+      // Crypto: BTC (Spot + IBIT) + Others
+      cryptoValue = (s["BTC_Spot"] || 0) + (s["IBIT"] || 0) + (s["ETH"] || 0) + (s["BNB"] || 0);
+
+      // Liabilities (Usually negative in summary, convert to positive for logging if needed, or keep raw)
+      // Project Memory says: Liabilities are negative in portfolioSummary.
+      // Snapshot expects positive magnitude? 
+      // Original code: Math.abs(liabilityValue)
+
+      // Need to find where Debt is stored in portfolioSummary.
+      // Usually "Loan_TWD" or similar?
+      // Let's check Core_StrategicEngine again. 
+      // It aggregates by ticker. Debt is usually NOT in portfolioSummary tickers unless mapped.
+      // Wait, context.netEntityValue is Net. totalGrossAssets is Gross.
+      // Liability = Total Gross - Net Entity.
+
+      totalAssetValue = context.totalGrossAssets;
+      netWorthValue = context.netEntityValue;
+      const totalDebt = totalAssetValue - netWorthValue;
+
+      liabilityValue = totalDebt;
+      cryptoliabilityValue = 0; // Configured globally now
+
+    } else {
+      // [Slow Path] 讀取 Sheet (Legacy / Fallback)
+      const sourceSheet = ss.getSheetByName(SOURCE_SHEET_NAME_V2);
+      if (!sourceSheet) throw new Error(`找不到名為 "${SOURCE_SHEET_NAME_V2}" 的分頁(且無自動化數據輸入)。`);
+
+      cashValue = sourceSheet.getRange("B2").getValue();
+      stockValue = sourceSheet.getRange("B3").getValue();
+      cryptoValue = sourceSheet.getRange("B4").getValue();
+      cryptoliabilityValue = sourceSheet.getRange("B5").getValue();
+      liabilityValue = sourceSheet.getRange("B6").getValue();
+      netWorthValue = sourceSheet.getRange("B7").getValue();
+      totalAssetValue = sourceSheet.getRange("D19").getValue();
+    }
 
     // 步驟二：計算「增幅百分比」
     let growthPercentage = 0;

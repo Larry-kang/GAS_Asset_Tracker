@@ -10,16 +10,16 @@ function runAutomationMaster() {
 
     try {
         // 1. Update Market Prices (Crypto + Stock)
-        // Assumes these functions exist in Fetch_CryptoPrice.js / Fetch_StockPrice.js mechanism
-        // In this upgraded version, we might just fetch what's needed for the dashboard.
-        // Calling existing price update hooks if available.
         try {
             if (typeof updateAllPrices === 'function') updateAllPrices();
         } catch (e) { console.warn("Price update skipped/failed: " + e.message); }
 
-        // 2. Execute Strategic Monitor (The 30-min heart)
+        // [NEW] 2. Sync Asset Balances
+        // Ensure balances are fresh BEFORE running strategy
+        syncAllAssets_();
+
+        // 3. Execute Strategic Monitor (The 30-min heart)
         // This reads indicators, checks logic, and updates dashboard.
-        // It assumes Core_StrategicEngine.js is loaded.
         if (typeof runStrategicMonitor === 'function') {
             runStrategicMonitor();
         } else {
@@ -29,7 +29,6 @@ function runAutomationMaster() {
         console.log(`[${context}] Routine Completed.`);
     } catch (e) {
         console.error(`[${context}] CRITICAL FAILURE: ${e.toString()}`);
-        // Optional: Email admin on system failure?
     }
 }
 
@@ -42,19 +41,29 @@ function runDailyCloseRoutine() {
     console.log(`[${context}] Recording Daily History...`);
 
     try {
-        // Force a full check first
+        // Force a full check first (Syncs Assets + Updates Dashboard)
         runAutomationMaster();
 
         // Wait for spreadsheet calculation propagation
         Utilities.sleep(5000);
 
-        // Record snapshot
+        // [NEW] Build Context for Snapshot
+        // We rebuild it to ensure we capture the state exactly as it is after sync
+        let context = null;
+        try {
+            if (typeof buildContext === 'function') {
+                context = buildContext();
+            }
+        } catch (e) {
+            console.warn("[Snapshot] Context build failed, falling back to sheet read: " + e.message);
+        }
+
+        // Record snapshot with Context
         if (typeof autoRecordDailyValues === 'function') {
-            autoRecordDailyValues();
+            autoRecordDailyValues(context);
         }
 
         // Send Daily Report (Email)
-        // This calls the detailed daily report logic (Core_StrategicEngine)
         if (typeof runDailyInvestmentCheck === 'function') {
             runDailyInvestmentCheck();
         }
@@ -64,4 +73,40 @@ function runDailyCloseRoutine() {
         const email = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAIL');
         if (email) MailApp.sendEmail(email, "[System Error] Daily Close Failed", e.toString());
     }
+}
+
+/**
+ * [Helper] Sync all exchange balances
+ * Orchestrates all individual sync modules safely.
+ */
+function syncAllAssets_() {
+    console.log("[Master] Syncing Assets...");
+
+    // Binance
+    try {
+        if (typeof getBinanceBalance === 'function') {
+            getBinanceBalance();
+        } else {
+            console.warn("getBinanceBalance not found");
+        }
+    } catch (e) { console.error("Binance Sync Failed", e); }
+
+    // OKX
+    try {
+        if (typeof getOkxBalance === 'function') {
+            getOkxBalance();
+        } else {
+            console.warn("getOkxBalance not found");
+        }
+    } catch (e) { console.error("OKX Sync Failed", e); }
+
+    // Pionex
+    try {
+        if (typeof getPionexBalance === 'function') getPionexBalance();
+    } catch (e) { console.error("Pionex Sync Failed", e); }
+
+    // BitoPro
+    try {
+        if (typeof getBitoProBalance === 'function') getBitoProBalance();
+    } catch (e) { console.error("BitoPro Sync Failed", e); }
 }
