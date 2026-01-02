@@ -1,5 +1,5 @@
 // =======================================================
-// --- OKX Service Layer (v3.0 - Unified Ledger) ---
+// --- OKX Service Layer (v3.1 - Debugging) ---
 // --- Refactored to use SyncManager.updateUnifiedLedger
 // =======================================================
 
@@ -25,25 +25,12 @@ function getOkxBalance() {
     const accRes = fetchOkxAccount_(baseUrl, apiKey, apiSecret, apiPassphrase);
     if (accRes.success && accRes.data) {
       accRes.data.forEach(item => {
-        // Available
-        if (item.avail > 0) {
-          assetList.push({ ccy: item.ccy, amt: item.avail, type: 'Spot', status: 'Available' });
-        }
-        // Frozen
-        if (item.frozen > 0) {
-          assetList.push({ ccy: item.ccy, amt: item.frozen, type: 'Spot', status: 'Frozen' });
-        }
-        // Liability (Negative)
-        if (item.liab > 0) {
-          assetList.push({
-            ccy: item.ccy,
-            amt: -Math.abs(item.liab),
-            type: 'Loan',
-            status: 'Debt',
-            meta: 'Margin Liability'
-          });
-        }
+        if (item.avail > 0) assetList.push({ ccy: item.ccy, amt: item.avail, type: 'Spot', status: 'Available' });
+        if (item.frozen > 0) assetList.push({ ccy: item.ccy, amt: item.frozen, type: 'Spot', status: 'Frozen' });
+        if (item.liab > 0) assetList.push({ ccy: item.ccy, amt: -Math.abs(item.liab), type: 'Loan', status: 'Debt', meta: 'Margin Liability' });
       });
+    } else {
+      SyncManager.log("ERROR", `Failed to fetch Account: ${accRes.status || 'Unknown Error'}`, MODULE_NAME);
     }
 
     // B. Simple Earn
@@ -52,13 +39,15 @@ function getOkxBalance() {
       earnRes.data.forEach(item => {
         assetList.push({ ccy: item.ccy, amt: item.amt, type: 'Earn', status: 'Staked' });
       });
+    } else {
+      // Earn might be empty or permissions issue?
+      if (earnRes.status) SyncManager.log("WARNING", `Fetch Earn Failed: ${earnRes.status}`, MODULE_NAME);
     }
 
-    // C. Flexible Loan Orders (Separate from Margin Liab)
+    // C. Flexible Loan Orders
     const loanRes = fetchOkxLoans_(baseUrl, apiKey, apiSecret, apiPassphrase);
     if (loanRes.success && loanRes.data) {
       loanRes.data.forEach(order => {
-        // Debt (Negative)
         assetList.push({
           ccy: order.loanCoin,
           amt: -Math.abs(order.totalDebt),
@@ -66,7 +55,6 @@ function getOkxBalance() {
           status: 'Debt',
           meta: `Flex Loan (LTV: ${(order.currentLTV * 100).toFixed(2)}%)`
         });
-        // Collateral
         assetList.push({
           ccy: order.collateralCoin,
           amt: order.collateralAmount,
@@ -75,6 +63,9 @@ function getOkxBalance() {
           meta: `Ref: ${order.loanCoin}`
         });
       });
+    } else {
+      // Loan failing is common if no loans exist or permissions missing
+      if (loanRes.status) SyncManager.log("WARNING", `Fetch Loans Failed: ${loanRes.status}`, MODULE_NAME);
     }
 
     // --- Update Ledger ---
@@ -83,13 +74,12 @@ function getOkxBalance() {
   });
 }
 
-// --- Helpers (Return Raw Lists) ---
+// --- Helpers ---
 
 function fetchOkxAccount_(baseUrl, apiKey, apiSecret, apiPassphrase) {
   const res = fetchOkxApi_(baseUrl, '/api/v5/account/balance', {}, apiKey, apiSecret, apiPassphrase);
-  const rawList = [];
-
   if (res.code === "0" && res.data && res.data[0] && res.data[0].details) {
+    const rawList = [];
     res.data[0].details.forEach(b => {
       rawList.push({
         ccy: b.ccy,
@@ -100,42 +90,44 @@ function fetchOkxAccount_(baseUrl, apiKey, apiSecret, apiPassphrase) {
     });
     return { success: true, data: rawList };
   }
-  return { success: false, status: res.msg };
+  return { success: false, status: `Code: ${res.code}, Msg: ${res.msg}` };
 }
 
 function fetchOkxEarn_(baseUrl, apiKey, apiSecret, apiPassphrase) {
   const res = fetchOkxApi_(baseUrl, '/api/v5/finance/savings/balance', {}, apiKey, apiSecret, apiPassphrase);
-  const rawList = [];
-  if (res.code === "0" && res.data) {
-    res.data.forEach(b => {
-      if (parseFloat(b.amt) > 0) {
-        rawList.push({ ccy: b.ccy, amt: parseFloat(b.amt) });
-      }
-    });
+  if (res.code === "0") {
+    const rawList = [];
+    if (res.data) {
+      res.data.forEach(b => {
+        if (parseFloat(b.amt) > 0) rawList.push({ ccy: b.ccy, amt: parseFloat(b.amt) });
+      });
+    }
     return { success: true, data: rawList };
   }
-  return { success: false };
+  return { success: false, status: `Code: ${res.code}, Msg: ${res.msg}` };
 }
 
 function fetchOkxLoans_(baseUrl, apiKey, apiSecret, apiPassphrase) {
+  // Try fetching flexible loans
   const res = fetchOkxApi_(baseUrl, '/api/v5/finance/flexible-loan/orders', { state: 'alive' }, apiKey, apiSecret, apiPassphrase);
-  const rawList = [];
-  if (res.code === "0" && res.data) {
-    res.data.forEach(o => {
-      rawList.push({
-        loanCoin: o.loanCcy,
-        totalDebt: parseFloat(o.loanAmt || 0) + parseFloat(o.interest || 0),
-        collateralCoin: o.collateralCcy,
-        collateralAmount: parseFloat(o.collateralAmt || 0),
-        currentLTV: parseFloat(o.curLtv || 0)
+  if (res.code === "0") {
+    const rawList = [];
+    if (res.data) {
+      res.data.forEach(o => {
+        rawList.push({
+          loanCoin: o.loanCcy,
+          totalDebt: parseFloat(o.loanAmt || 0) + parseFloat(o.interest || 0),
+          collateralCoin: o.collateralCcy,
+          collateralAmount: parseFloat(o.collateralAmt || 0),
+          currentLTV: parseFloat(o.curLtv || 0)
+        });
       });
-    });
+    }
     return { success: true, data: rawList };
   }
-  return { success: false };
+  return { success: false, status: `Code: ${res.code}, Msg: ${res.msg}` };
 }
 
-// ... fetchOkxApi_ (Keep existing) ...
 function fetchOkxApi_(baseUrl, endpoint, params, apiKey, apiSecret, apiPassphrase) {
   const method = 'GET';
   const timestamp = new Date().toISOString();
@@ -159,6 +151,9 @@ function fetchOkxApi_(baseUrl, endpoint, params, apiKey, apiSecret, apiPassphras
     muteHttpExceptions: true
   };
   try {
-    return JSON.parse(UrlFetchApp.fetch(url, options).getContentText());
+    const response = UrlFetchApp.fetch(url, options);
+    const content = response.getContentText();
+    const json = JSON.parse(content);
+    return json;
   } catch (e) { return { code: "-1", msg: e.message }; }
 }

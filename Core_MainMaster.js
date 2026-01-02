@@ -82,6 +82,11 @@ function runDailyCloseRoutine() {
 function syncAllAssets_() {
     console.log("[Master] Syncing Assets...");
 
+    // [Clean Logs] Keep only last 7 days
+    if (typeof LogService !== 'undefined' && LogService.cleanupOldLogs) {
+        LogService.cleanupOldLogs(7);
+    }
+
     // Binance
     try {
         if (typeof getBinanceBalance === 'function') {
