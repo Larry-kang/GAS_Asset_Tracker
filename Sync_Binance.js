@@ -82,19 +82,26 @@ function fetchSpotBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
   const res = fetchBinanceApi_(baseUrl, '/api/v3/account', {}, apiKey, apiSecret, proxyPassword);
 
   if (res.code !== "0") {
+    console.error(`[Spot] API Failed: ${res.msg}`);
     return { success: false, status: "Failed: " + res.msg };
   }
 
   const balances = new Map();
   // Spot returns object with 'balances' array
   if (res.data && res.data.balances) {
+    let count = 0;
     res.data.balances.forEach(b => {
       const free = parseFloat(b.free);
       const locked = parseFloat(b.locked);
       if ((free + locked) > 0) {
         balances.set(b.asset, free + locked);
+        count++;
       }
     });
+    console.log(`[Spot] Found ${count} non-zero assets. Raw Balances length: ${res.data.balances.length}`);
+    if (count > 0) console.log(`[Spot] Top 3 Sample: ${JSON.stringify([...balances.entries()].slice(0, 3))}`);
+  } else {
+    console.warn(`[Spot] 'balances' field missing in response: ${JSON.stringify(res.data).substring(0, 100)}`);
   }
   return { success: true, status: "OK", data: balances };
 }
@@ -107,6 +114,7 @@ function fetchEarnPositions_(baseUrl, apiKey, apiSecret, proxyPassword) {
   const res = fetchBinanceApi_(baseUrl, '/sapi/v1/simple-earn/flexible/position', { limit: 100 }, apiKey, apiSecret, proxyPassword);
 
   if (res.code !== "0") {
+    console.warn(`[Earn] API Failed (might be empty/no perm): ${res.msg}`);
     // 某些帳戶可能無 Simple Earn 權限或未開通，視為空
     return { success: false, status: "Failed: " + res.msg, data: new Map() };
   }
@@ -114,6 +122,8 @@ function fetchEarnPositions_(baseUrl, apiKey, apiSecret, proxyPassword) {
   const balances = new Map();
   // SAPI usually returns array directly or { rows: [] }
   const rows = Array.isArray(res.data) ? res.data : (res.data.rows || []);
+
+  console.log(`[Earn] API returned ${rows.length} positions.`);
 
   rows.forEach(row => {
     const asset = row.asset;
@@ -123,6 +133,8 @@ function fetchEarnPositions_(baseUrl, apiKey, apiSecret, proxyPassword) {
       balances.set(asset, current + amount);
     }
   });
+
+  if (balances.size > 0) console.log(`[Earn] Processed ${balances.size} assets. Sample: ${JSON.stringify([...balances.entries()].slice(0, 3))}`);
 
   return { success: true, status: "OK", data: balances };
 }
@@ -135,10 +147,12 @@ function fetchLoanOrders_(baseUrl, apiKey, apiSecret, proxyPassword) {
   const res = fetchBinanceApi_(baseUrl, '/sapi/v2/loan/flexible/ongoing/orders', { limit: 100 }, apiKey, apiSecret, proxyPassword);
 
   if (res.code !== "0") {
+    console.error(`[Loans] API Failed: ${res.msg}`);
     return { success: false, status: "Failed: " + res.msg, data: [] };
   }
 
   const rows = Array.isArray(res.data) ? res.data : (res.data.rows || []);
+  console.log(`[Loans] Found ${rows.length} active loan orders.`);
 
   const orders = rows.map(r => ({
     loanCoin: r.loanCoin,
@@ -177,18 +191,24 @@ function updateBalanceSheet_(ss, spotResult, earnResult) {
   const spotData = spotResult.success ? spotResult.data : new Map();
   const earnData = earnResult.success ? earnResult.data : new Map();
 
+  console.log(`[UpdateSheet] Spot Success: ${spotResult.success}, Data Type: ${typeof spotData}, IsMap: ${spotData instanceof Map}`);
+  console.log(`[UpdateSheet] Earn Success: ${earnResult.success}, Data Type: ${typeof earnData}, IsMap: ${earnData instanceof Map}`);
+
   const combinedTotals = new Map();
 
   // Helper to merge data into combinedTotals
-  const mergeData = (data) => {
+  const mergeData = (data, sourceName) => {
     if (!data) return;
 
+    let count = 0;
     // Case A: Map (Iterable)
     if (data instanceof Map) {
       data.forEach((val, key) => {
         const current = combinedTotals.get(key) || 0;
         combinedTotals.set(key, current + val);
+        count++;
       });
+      console.log(`[UpdateSheet] Merged ${count} items from ${sourceName} (Map).`);
       return;
     }
 
@@ -198,7 +218,9 @@ function updateBalanceSheet_(ss, spotResult, earnResult) {
         const val = data[key];
         const current = combinedTotals.get(key) || 0;
         combinedTotals.set(key, current + val);
+        count++;
       });
+      console.log(`[UpdateSheet] Merged ${count} items from ${sourceName} (Object).`);
       return;
     }
 
@@ -206,8 +228,8 @@ function updateBalanceSheet_(ss, spotResult, earnResult) {
     console.warn(`[Sync_Binance] Unexpected data type for merge: ${typeof data}`);
   };
 
-  mergeData(spotData);
-  mergeData(earnData);
+  mergeData(spotData, "Spot");
+  mergeData(earnData, "Earn");
 
   const sheetData = [];
   combinedTotals.forEach((val, asset) => {
@@ -215,12 +237,17 @@ function updateBalanceSheet_(ss, spotResult, earnResult) {
   });
   sheetData.sort((a, b) => b[1] - a[1]);
 
+  console.log(`[UpdateSheet] Final Sheet Data Rows: ${sheetData.length}`);
+
   if (sheetData.length > 0) {
     sheet.getRange('A2:C').clearContent();
     sheet.getRange('A2:C').setFontColor('black'); // Reset color
     sheet.getRange(2, 1, sheetData.length, 2).setValues(sheetData);
     sheet.getRange(2, 3).setValue(new Date());
     ss.toast(`TwBinance 資產更新成功！(${sheetData.length} 幣種)`);
+  } else {
+    console.warn("[UpdateSheet] No non-zero assets found to write.");
+    ss.toast("Binance 同步完成但無資產 (0 幣種)");
   }
 }
 
