@@ -1,7 +1,8 @@
-# SAP 主權資產協議 (Sovereign Asset Protocol) v24.6
+# SAP (Sovereign Asset Protocol) v24.6
+> **全自動資產追蹤與戰略再平衡系統 - 比特幣本位版**
 
-> **系統代號**: SAP  
-> **核心目標**: 實現比特幣本位 (Bitcoin Standard) 的全自動化資產追蹤與戰略再平衡系統。  
+### 核心目標
+本專案旨在實現「比特幣本位 (Bitcoin Standard)」的個人/實體資產自動化管理。透過 Google Apps Script (GAS) 整合多交易所、銀行與冷錢包數據，結合動態戰略決策引擎，確保資產維持在最佳配置狀態。
 > **版本狀態**: Stable (Open Source Release)
 
 ---
@@ -10,12 +11,21 @@
 
 SAP 是一套建構於 Google Apps Script (GAS) 之上的無伺服器 (Serverless) 金融指管系統。它不只是一個記帳工具，而是一個整合了「數據採集」、「風險監控」與「戰略執行」的自動化引擎。系統透過 WebSocket 與 REST API 即時整合全球前四大加密貨幣交易所與台灣證交所數據，為使用者提供上帝視角的資產儀表板。
 
-## 核心功能 (Core Features)
+### 1. 核心層 (Core)
+*   `Core_MainMaster.js`: 自動化主流程調度。
+*   `Core_StrategicEngine.js`: 戰略決策引擎，處理 BTC 強度策略與再平衡。
+*   `Core_LogService.js`: 結構化日誌服務，並提供自動清理機制。
 
-### 1. Unified Asset Ledger (全域資產總帳)
-*   **單一事實來源**: 導入 `Lib_SyncManager`，將 Binance, OKX, Pionex, BitoPro 數據標準化為統一格式 (`Exchange`, `Type`, `Currency`, `Amount`, `Status`)。
-*   **原子化更新**: 採 Exchange-Level Atomic Replacement 策略，確保數據一致性。
-*   **台股串接**: 自動抓取 TWSE 融資維持率與庫存市值。
+### 2. 同步層 (Sync)
+*   `Sync_Binance.js`, `Sync_Okx.js`, `Sync_BitoPro.js`: 各交易所餘額自動同步。
+*   `Lib_SyncManager.js`: 統合數據處理與工作表寫入的核心庫。
+
+### 3. 工具與配置層 (Util & Config)
+*   `Config.js`: 系統常量與全局閾值。
+*   `Util_Settings.js`: [v24.6 NEW] 中心化配置管理，封裝 PropertiesService 調用。
+*   `Util_Credentials.js`: API 憑證權限管理中心。
+*   `Util_HealthCheck.js`: 系統完整度與連線診斷。
+*   `Util_ImportJSON.js`: 多功能 JSON 數據抓取工具。
 *   **匯率換算**: 透過 Google Finance 與自建 API，即時計算 TWD/USD 總資產淨值 (NAV)。
 
 ### 2. 戰略決策引擎 (Strategic Engine)
@@ -118,3 +128,4 @@ SAP 是一套建構於 Google Apps Script (GAS) 之上的無伺服器 (Serverles
 * **Role:** Senior Backend Engineer | FinTech Specialist
 * **Focus:** Distributed Systems, Payment Architecture, .NET Performance Tuning.
 * **Contact:** [LinkedIn Profile](www.linkedin.com/in/larry-kang)
+

@@ -6,12 +6,13 @@ function runSystemHealthCheck() {
     let issues = 0;
 
     // 1. Script Properties Check
-    const props = PropertiesService.getScriptProperties().getProperties();
+    // Get all properties via Settings if possible, or use a health-check specific list
     const requiredProps = ["ADMIN_EMAIL", "BINANCE_API_KEY", "BINANCE_API_SECRET", "BITOPRO_API_KEY", "BITOPRO_API_SECRET"];
 
     report += "\n[I] 憑證權限檢查\n";
     requiredProps.forEach(p => {
-        if (!props[p]) {
+        const val = Settings.get(p);
+        if (!val) {
             report += `[失敗] 缺少關鍵屬性: ${p}\n`;
             issues++;
         } else {
@@ -35,8 +36,8 @@ function runSystemHealthCheck() {
 
     // 3. API Connectivity (Latent Check)
     report += "\n[III] 網路連線診斷\n";
-    const tunnelUrl = props["TUNNEL_URL"];
-    const proxyPass = props["PROXY_PASSWORD"];
+    const tunnelUrl = Settings.get("TUNNEL_URL");
+    const proxyPass = Settings.get("PROXY_PASSWORD");
     const targetUrl = tunnelUrl ? `${tunnelUrl}/api/v3/ping` : "https://api.binance.com/api/v3/ping";
 
     const params = { muteHttpExceptions: true };
@@ -68,3 +69,4 @@ function runSystemHealthCheck() {
 
     return report;
 }
+

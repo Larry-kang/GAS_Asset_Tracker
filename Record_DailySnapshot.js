@@ -25,7 +25,7 @@ function autoRecordDailyValues(context) {
     let cashValue, stockValue, cryptoValue, cryptoliabilityValue, liabilityValue, netWorthValue, totalAssetValue;
 
     if (context && context.portfolioSummary) {
-      // [Fast Path] 直接從計算上下文讀取 (SAP v24.5)
+      // [Fast Path] 直接從計算上下文讀取
       const s = context.portfolioSummary;
 
       // Mapping Logic
@@ -127,7 +127,7 @@ function autoRecordDailyValues(context) {
         // 注意：newRowData 的長度必須與目標欄位數匹配
         // 這裡我們只更新前 8 欄 (A-H)，公式欄位不動
         destinationSheet.getRange(lastRowIndex, 1, 1, newRowData.length).setValues([newRowData]);
-        Logger.log(`[Snapshot] Updated existing record for ${formattedDate}`);
+        LogService.info(`Updated existing record for ${formattedDate}`, 'Snapshot:Upsert');
       }
     }
 
@@ -141,7 +141,7 @@ function autoRecordDailyValues(context) {
         destinationSheet.appendRow(headers);
       }
       destinationSheet.appendRow(newRowData);
-      Logger.log(`[Snapshot] Inserted new record for ${formattedDate}`);
+      LogService.info(`Inserted new record for ${formattedDate}`, 'Snapshot:Upsert');
     }
 
     // 步驟五：自動填充公式 (僅在新增模式或強制檢查時執行，但為確保一致性，更新模式也可以檢查)
@@ -158,7 +158,7 @@ function autoRecordDailyValues(context) {
     // --- 【*** 修正結束 ***】 ---
 
   } catch (e) {
-    Logger.log(`每日資產紀錄腳本執行失敗: ${e.toString()}`);
+    LogService.error(`每日資產紀錄腳本執行失敗: ${e.toString()}`, 'Snapshot:Error');
     // MailApp.sendEmail("YOUR_EMAIL@example.com", "【錯誤】每日資產紀錄腳本失敗", e.toString());
   }
 }

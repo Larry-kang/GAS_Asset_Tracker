@@ -69,3 +69,4 @@ function syncAssets() {
     SpreadsheetApp.getUi().alert(`同步失敗：${e.message}`);
   }
 }
+

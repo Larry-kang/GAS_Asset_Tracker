@@ -36,7 +36,7 @@ const MOCK_DATA = {
 };
 
 function debugSAPLogic() {
-  Logger.log("=== SAP v24.5 邏輯模擬測試開始 ===");
+  Logger.log("=== SAP " + Config.VERSION + " 邏輯模擬測試開始 ===");
 
   // Scenario 1: Normal
   runScenario("情境 A: 正常市場 (平盤震盪)", { btcPrice: 65000, baseAth: 70000 });

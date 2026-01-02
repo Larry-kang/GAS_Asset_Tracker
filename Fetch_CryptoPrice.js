@@ -112,7 +112,7 @@ function fetchCryptoPrice(ticker, currency = 'USD') {
  */
 function getCryptoPrice(symbol, convert) {
   var convertCurrency = convert || "USD";
-  var apiKey = PropertiesService.getScriptProperties().getProperty('CMC_API_KEY');
+  var apiKey = Settings.get('CMC_API_KEY');
 
   if (!apiKey) {
     Logger.log("  - ERROR: CoinMarketCap API Key not found in Script Properties.");

@@ -115,3 +115,4 @@ function testGetPriceFromYahoo() {
 }
 
 // End of Stock Price module
+

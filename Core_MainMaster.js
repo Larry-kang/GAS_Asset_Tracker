@@ -70,7 +70,7 @@ function runDailyCloseRoutine() {
 
     } catch (e) {
         console.error(`[${context}] Failed: ${e.toString()}`);
-        const email = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAIL');
+        const email = Settings.get('ADMIN_EMAIL');
         if (email) MailApp.sendEmail(email, "[System Error] Daily Close Failed", e.toString());
     }
 }
@@ -115,3 +115,4 @@ function syncAllAssets_() {
         if (typeof getBitoProBalance === 'function') getBitoProBalance();
     } catch (e) { console.error("BitoPro Sync Failed", e); }
 }
+

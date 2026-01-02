@@ -1,6 +1,6 @@
-﻿/**
+/**
  * Scheduler_Triggers.js
- * Handles the creation and management of time-based triggers for SAP v24.5.
+  * Handles the creation and management of time - based triggers for SAP v24.6.
  */
 
 /**
@@ -18,8 +18,6 @@ function setupScheduledTriggers() {
   } catch (e) {
     Logger.log("[Info] UI environment not available. Using Logger instead.");
   }
-
-  const props = PropertiesService.getScriptProperties();
 
   // 1. Clear Existing Triggers to prevent duplicates
   const triggers = ScriptApp.getProjectTriggers();
