@@ -182,6 +182,11 @@ const RULES = [
   }
 ];
 
+/**
+ * Displays strategic report UI with current market status and alerts.
+ * Shows portfolio snapshot, risk indicators, and action recommendations.
+ * @public
+ */
 function showStrategicReportUI() {
   const ui = SpreadsheetApp.getUi();
   try {
@@ -204,6 +209,12 @@ function showStrategicReportUI() {
   } catch (e) { ui.alert("錯誤: " + e.toString()); }
 }
 
+/**
+ * Executes daily investment check and sends email report.
+ * Analyzes market conditions, triggers alerts, and updates dashboard.
+ * Called by daily trigger at scheduled time.
+ * @public
+ */
 function runDailyInvestmentCheck() {
   try {
     const context = buildContext();
@@ -221,8 +232,9 @@ function runDailyInvestmentCheck() {
 }
 
 /**
- * Executes the frequent (30-min) strategic monitor.
- * Updates Dashboard and sends alerts only if critical.
+ * Executes frequent (30-min) strategic monitor.
+ * Updates dashboard and logs alerts without sending emails (noise reduction).
+ * @public
  */
 function runStrategicMonitor() {
   try {
@@ -269,34 +281,56 @@ function updateDashboard(context) {
   });
 }
 
+/**
+ * Initial Setup Wizard
+ * Guides user through configuration and initializes high-frequency monitoring.
+ */
 function setup() {
   const ui = SpreadsheetApp.getUi();
   const props = PropertiesService.getScriptProperties();
 
-  // 1. 設定 Email
-  const emailRes = ui.prompt("設定管理員信箱 (ADMIN_EMAIL)", "請輸入 Email:", ui.ButtonSet.OK_CANCEL);
-  if (emailRes.getSelectedButton() == ui.Button.OK) props.setProperty('ADMIN_EMAIL', emailRes.getResponseText());
+  // Step 1: Configure Admin Email
+  const emailRes = ui.prompt(
+    "設定管理員信箱 (ADMIN_EMAIL)",
+    "請輸入接收戰略報告的 Email:",
+    ui.ButtonSet.OK_CANCEL
+  );
 
-  // 2. 自動設定排程 (預設: 每日早上 6 點)
-  const defaultHour = 6;
-  props.setProperty('SCHEDULER_MODE', 'DAILY');
-  props.setProperty('SCHEDULER_HOUR', defaultHour.toString());
-  props.setProperty('SCHEDULER_ENABLED', 'true');
-
-  // 清除舊觸發器
-  const triggers = ScriptApp.getProjectTriggers();
-  triggers.forEach(t => {
-    const func = t.getHandlerFunction();
-    if (func === 'runDailyInvestmentCheck' || func === 'autoRecordDailyValues' || func === 'updateAllPrices' || func === 'runAutomationMaster') {
-      ScriptApp.deleteTrigger(t);
+  if (emailRes.getSelectedButton() == ui.Button.OK) {
+    const email = emailRes.getResponseText().trim();
+    if (email) {
+      props.setProperty('ADMIN_EMAIL', email);
+      console.log('[Setup] Email configured: ' + email);
     }
-  });
+  }
 
-  // 建立新觸發器
-  ScriptApp.newTrigger('runAutomationMaster').timeBased().everyDays(1).atHour(defaultHour).create();
-  ScriptApp.newTrigger('autoRecordDailyValues').timeBased().everyDays(1).atHour(1).create();
+  // Step 2: Configure Emergency Reserve Threshold
+  const reserveRes = ui.prompt(
+    "設定緊急預備金門檻 (TREASURY_RESERVE_TWD)",
+    "請輸入金額（TWD，預設 100000）:\n\n" +
+    "此門檻用於判斷流動性健康度。",
+    ui.ButtonSet.OK_CANCEL
+  );
 
-  ui.alert(`設定完成！\n已為您自動部署戰略排程：\n- 每日報告: 早上 ${defaultHour}:00 (美股收盤後)\n- 資產快照: 凌晨 01:00`);
+  if (reserveRes.getSelectedButton() == ui.Button.OK) {
+    const amount = parseFloat(reserveRes.getResponseText());
+    if (!isNaN(amount) && amount > 0) {
+      props.setProperty('TREASURY_RESERVE_TWD', amount.toString());
+      console.log('[Setup] Treasury Reserve set to: ' + amount);
+    }
+  }
+
+  // Step 3: Initialize High-Frequency Monitoring
+  // Delegate to setupScheduledTriggers for standardized trigger configuration
+  if (typeof setupScheduledTriggers === 'function') {
+    setupScheduledTriggers();
+  } else {
+    ui.alert(
+      '❌ 錯誤',
+      '找不到 setupScheduledTriggers 函數。\n請確認 Scheduler_Triggers.js 已正確載入。',
+      ui.ButtonSet.OK
+    );
+  }
 }
 
 function buildContext() {

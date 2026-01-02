@@ -1,3 +1,8 @@
+/**
+ * Spreadsheet onOpen trigger - creates custom menu on spreadsheet load.
+ * Automatically called by Google Sheets when the spreadsheet is opened.
+ * @public
+ */
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
   const menu = ui.createMenu('SAP 指揮中心');
@@ -35,7 +40,9 @@ function onOpen() {
 }
 
 /**
- * 快速跳轉至日誌工作表
+ * Opens the System Logs sheet for quick access.
+ * Displays an alert if the sheet is not found.
+ * @public
  */
 function openLogSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -48,13 +55,32 @@ function openLogSheet() {
 }
 
 /**
- * 每日快照持久化包裝器
+ * Wrapper function for manual daily snapshot execution.
+ * Calls the core snapshot function with error handling and user feedback.
+ * @public
  */
 function Record_DailySnapshot() {
-  if (typeof autoRecordDailyValues === 'function') {
-    autoRecordDailyValues();
-  } else {
-    SpreadsheetApp.getUi().alert("找不到 autoRecordDailyValues 函數。");
+  const ui = SpreadsheetApp.getUi();
+
+  try {
+    if (typeof autoRecordDailyValues === 'function') {
+      autoRecordDailyValues();
+      ui.alert(
+        '✅ 快照記錄完成',
+        '每日資產快照已成功寫入 Daily History 工作表。',
+        ui.ButtonSet.OK
+      );
+      console.log('[Record_DailySnapshot] Manual snapshot completed successfully.');
+    } else {
+      throw new Error("找不到 autoRecordDailyValues 函數");
+    }
+  } catch (e) {
+    console.error('[Record_DailySnapshot] 執行失敗:', e);
+    ui.alert(
+      '❌ 快照記錄失敗',
+      `執行時發生錯誤：\n${e.message}\n\n請檢查 Record_DailySnapshot.js 是否正確載入。`,
+      ui.ButtonSet.OK
+    );
   }
 }
 

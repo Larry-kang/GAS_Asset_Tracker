@@ -45,6 +45,11 @@ function fetchTodayBalance(stockSymbol, queryDate) {
   }
 }
 
+/**
+ * Test function for manual execution in Apps Script editor.
+ * Example: Fetches 2330 (TSMC) stock balance for testing.
+ * @private
+ */
 function main() {
   const stockSymbol = '00948B';  // 替換成你想要查詢的股票代碼
   const queryDate = getLatestWorkingDay();  // 自動取得最近的工作日

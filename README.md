@@ -74,7 +74,7 @@ SAP 是一套建構於 Google Apps Script (GAS) 之上的無伺服器 (Serverles
 
 ---
 
-## 👤 Author
+## Author
 
 **Larry Kang**
 
