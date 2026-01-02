@@ -73,25 +73,41 @@ function getPriceFromYahoo(stockSymbol) {
   return null;
 }
 
-// 測試各個抓取路徑的方法
+/**
+ * Test function for manual execution - tests complete stock price fetching flow.
+ * @example Run in Apps Script editor to test all fallback mechanisms
+ * @private
+ */
 function testGetStockPrice() {
   var stockSymbol = "2330"; // 輸入股票代號
   var price = getStockPrice(stockSymbol);
   Logger.log("股票代號 " + stockSymbol + " 的股價為: " + price);
 }
 
+/**
+ * Test function - tests Google Finance price fetching mechanism.
+ * @private
+ */
 function testGetPriceFromGoogleFinance() {
   var stockSymbol = "2330";
   var price = getPriceFromGoogleFinance(stockSymbol);
   Logger.log("GOOGLEFINANCE 股票代號 " + stockSymbol + " 的股價為: " + price);
 }
 
+/**
+ * Test function - tests Cnyes (銳享網) price fetching mechanism.
+ * @private
+ */
 function testGetPriceFromCnyes() {
   var stockSymbol = "2330";
   var price = getPriceFromCnyes(stockSymbol);
   Logger.log("銳享網 股票代號 " + stockSymbol + " 的股價為: " + price);
 }
 
+/**
+ * Test function - tests Yahoo Finance price fetching mechanism.
+ * @private
+ */
 function testGetPriceFromYahoo() {
   var stockSymbol = "2330";
   var price = getPriceFromYahoo(stockSymbol);

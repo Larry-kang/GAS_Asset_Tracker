@@ -2,6 +2,10 @@
  * Test_SAP_Simulation.js
  * Sandbox for testing SAP v24.5 Logic without executing trades.
  * Logs output to GAS Console.
+ * 
+ * USAGE: Uncomment and run debugSAPLogic() in Apps Script editor
+ * NOTE: This script references RULES from Core_StrategicEngine.js
+ *       Ensure Core_StrategicEngine.js is loaded before running tests
  */
 
 // Mock Dependencies
@@ -37,20 +41,20 @@ function debugSAPLogic() {
   runScenario("情境 C: 暴跌狙擊 (Sniper Level 1: -40%)", { btcPrice: 42000, baseAth: 70000 }); // 42k is -40% of 70k
 
   // Scenario 4: Cashflow Rerouting (L1 Low)
-  runScenario("情境 D: 盈餘分配 (現貨不足)", { 
-      btcPrice: 65000, 
-      baseAth: 70000, 
-      l1Ratio: 0.50, 
-      surplus: 100000 
+  runScenario("情境 D: 盈餘分配 (現貨不足)", {
+    btcPrice: 65000,
+    baseAth: 70000,
+    l1Ratio: 0.50,
+    surplus: 100000
   });
 
   // Scenario 5: Cashflow Rerouting (Overheated)
-  runScenario("情境 E: 盈餘分配 (過熱防禦)", { 
-      btcPrice: 65000, 
-      baseAth: 70000, 
-      l1Ratio: 0.85, 
-      totalBtcRatio: 0.85, 
-      surplus: 100000 
+  runScenario("情境 E: 盈餘分配 (過熱防禦)", {
+    btcPrice: 65000,
+    baseAth: 70000,
+    l1Ratio: 0.85,
+    totalBtcRatio: 0.85,
+    surplus: 100000
   });
 
   Logger.log("=== 測試結束 ===");
@@ -58,10 +62,10 @@ function debugSAPLogic() {
 
 function runScenario(name, overrides) {
   Logger.log("\n--- " + name + " ---");
-  
+
   // Build Mock Context
   const context = buildMockContext(overrides);
-  
+
   let triggered = false;
   RULES.forEach(rule => {
     if (rule.condition(context)) {
@@ -75,7 +79,7 @@ function runScenario(name, overrides) {
       }
     }
   });
-  
+
   if (!triggered) {
     Logger.log("[靜默] 無觸發任何警報或行動。");
   }
