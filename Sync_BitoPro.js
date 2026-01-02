@@ -70,19 +70,27 @@ function getBitoProBalance() {
     Logger.log(logMessages.join("\n"));
     Logger.log("==================================");
 
-    // 排序：依據總額 (這裡簡單依數量排序，若需依價值排序需額外抓價格)
+    // 排序
     sheetData.sort((a, b) => b[1] - a[1]);
+
+    // 1. 強制寫入標題
+    const headers = ['幣種', '總額', '可用', '凍結/質押', '更新時間'];
+    sheet.getRange(1, 1, 1, 5).setValues([headers]);
+    sheet.getRange(1, 1, 1, 5).setFontWeight('bold');
 
     // 清除舊資料 (保留標題列)
     const lastRow = sheet.getLastRow();
     if (lastRow > 1) {
-      sheet.getRange(2, 1, lastRow - 1, 4).clearContent();
+      sheet.getRange(2, 1, lastRow - 1, 5).clearContent();
     }
+
+    const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
 
     if (sheetData.length > 0) {
       sheet.getRange(2, 1, sheetData.length, 4).setValues(sheetData);
-      // 在 E2 儲存更新時間
-      sheet.getRange(2, 5).setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss"));
+      sheet.getRange(2, 5).setValue(timestamp);
+    } else {
+      sheet.getRange(2, 1, 1, 5).setValues([['No Assets', 0, 0, 0, timestamp]]);
     }
 
     Logger.log('成功更新 ' + sheetData.length + ' 種 BitoPro 資產餘額。');

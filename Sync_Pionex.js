@@ -61,11 +61,21 @@ function getPionexBalance() {
       // 排序
       sheetData.sort((a, b) => b[1] - a[1]);
 
+      // 1. 強制寫入標題
+      const headers = ['幣種', '總額', 'Free', 'Frozen', 'Raw Data', '更新時間'];
+      sheet.getRange(1, 1, 1, 6).setValues([headers]);
+      sheet.getRange(1, 1, 1, 6).setFontWeight('bold');
+
       // 寫入
-      sheet.getRange('A2:E').clearContent();
+      sheet.getRange('A2:F').clearContent();
+
+      const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+
       if (sheetData.length > 0) {
         sheet.getRange(2, 1, sheetData.length, 5).setValues(sheetData);
-        sheet.getRange("F2").setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss"));
+        sheet.getRange(2, 6).setValue(timestamp);
+      } else {
+        sheet.getRange(2, 1, 1, 6).setValues([['No Assets', 0, 0, 0, '{}', timestamp]]);
       }
 
       ss.toast(`更新完成！請檢查 'Pionex Balance' 的 E 欄 (Raw Data)`);

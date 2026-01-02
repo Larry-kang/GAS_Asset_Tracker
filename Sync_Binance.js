@@ -175,6 +175,10 @@ function updateBalanceSheet_(ss, spotResult, earnResult) {
   let sheet = ss.getSheetByName('Binance Balance');
   if (!sheet) sheet = ss.insertSheet('Binance Balance');
 
+  // 1. 寫入固定標題 (Enforce Headers)
+  sheet.getRange('A1:C1').setValues([['Currency', 'Total', 'Last Updated']]);
+  sheet.getRange('A1:C1').setFontWeight('bold').setBackground('#f3f3f3');
+
   // 若兩者皆失敗，顯示錯誤
   if (!spotResult.success && !earnResult.success) {
     sheet.getRange('A2:C').clearContent();
@@ -183,7 +187,7 @@ function updateBalanceSheet_(ss, spotResult, earnResult) {
       [`Error: Earn - ${earnResult.status}`]
     ]);
     sheet.getRange('A2:A3').setFontColor('red');
-    sheet.getRange('C2').setValue(new Date());
+    sheet.getRange('C2').setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss"));
     return;
   }
 
@@ -239,13 +243,19 @@ function updateBalanceSheet_(ss, spotResult, earnResult) {
 
   console.log(`[UpdateSheet] Final Sheet Data Rows: ${sheetData.length}`);
 
+  // 清除舊資料
+  sheet.getRange('A2:C').clearContent();
+  sheet.getRange('A2:C').setFontColor('black');
+
+  const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+
   if (sheetData.length > 0) {
-    sheet.getRange('A2:C').clearContent();
-    sheet.getRange('A2:C').setFontColor('black'); // Reset color
     sheet.getRange(2, 1, sheetData.length, 2).setValues(sheetData);
-    sheet.getRange(2, 3).setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss"));
+    sheet.getRange(2, 3).setValue(timestamp);
     ss.toast(`TwBinance 資產更新成功！(${sheetData.length} 幣種)`);
   } else {
+    // 明確顯示無資產 (No Assets Found)
+    sheet.getRange(2, 1, 1, 3).setValues([['No Assets Found (Check API/Log)', 0, timestamp]]);
     console.warn("[UpdateSheet] No non-zero assets found to write.");
     ss.toast("Binance 同步完成但無資產 (0 幣種)");
   }
