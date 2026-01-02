@@ -30,6 +30,9 @@ function getBinanceBalance() {
     const spotRes = fetchSpotBalances_(baseUrl, apiKey, apiSecret, proxyPassword);
     if (spotRes.success && spotRes.data) {
       spotRes.data.forEach(item => {
+        // [Rule] Exclude 'LD' (Locked/Earn) assets from Spot to prevent duplication/clutter
+        if (item.asset.startsWith('LD')) return;
+
         // Free
         if (item.free > 0) {
           assetList.push({ ccy: item.asset, amt: item.free, type: 'Spot', status: 'Available' });
