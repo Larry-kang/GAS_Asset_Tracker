@@ -75,9 +75,81 @@ function getBinanceBalance() {
   }
 }
 
-// ... fetchSpotBalances_ ... (保持不變)
-// ... fetchEarnPositions_ ... (保持不變)
-// ... fetchLoanOrders_ ... (保持不變)
+/**
+ * [私有] A. 獲取現貨餘額 (Spot)
+ */
+function fetchSpotBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
+  const res = fetchBinanceApi_(baseUrl, '/api/v3/account', {}, apiKey, apiSecret, proxyPassword);
+
+  if (res.code !== "0") {
+    return { success: false, status: "Failed: " + res.msg };
+  }
+
+  const balances = new Map();
+  // Spot returns object with 'balances' array
+  if (res.data && res.data.balances) {
+    res.data.balances.forEach(b => {
+      const free = parseFloat(b.free);
+      const locked = parseFloat(b.locked);
+      if ((free + locked) > 0) {
+        balances.set(b.asset, free + locked);
+      }
+    });
+  }
+  return { success: true, status: "OK", data: balances };
+}
+
+/**
+ * [私有] B. 獲取理財餘額 (Simple Earn Flexible)
+ */
+function fetchEarnPositions_(baseUrl, apiKey, apiSecret, proxyPassword) {
+  // Simple Earn Flexible Positions
+  const res = fetchBinanceApi_(baseUrl, '/sapi/v1/simple-earn/flexible/position', { limit: 100 }, apiKey, apiSecret, proxyPassword);
+
+  if (res.code !== "0") {
+    // 某些帳戶可能無 Simple Earn 權限或未開通，視為空
+    return { success: false, status: "Failed: " + res.msg, data: new Map() };
+  }
+
+  const balances = new Map();
+  // SAPI usually returns array directly or { rows: [] }
+  const rows = Array.isArray(res.data) ? res.data : (res.data.rows || []);
+
+  rows.forEach(row => {
+    const asset = row.asset;
+    const amount = parseFloat(row.totalAmount);
+    if (amount > 0) {
+      const current = balances.get(asset) || 0;
+      balances.set(asset, current + amount);
+    }
+  });
+
+  return { success: true, status: "OK", data: balances };
+}
+
+/**
+ * [私有] C. 獲取借貸訂單 (Flexible Loan)
+ */
+function fetchLoanOrders_(baseUrl, apiKey, apiSecret, proxyPassword) {
+  // Flexible Loan Ongoing Orders
+  const res = fetchBinanceApi_(baseUrl, '/sapi/v2/loan/flexible/ongoing/orders', { limit: 100 }, apiKey, apiSecret, proxyPassword);
+
+  if (res.code !== "0") {
+    return { success: false, status: "Failed: " + res.msg, data: [] };
+  }
+
+  const rows = Array.isArray(res.data) ? res.data : (res.data.rows || []);
+
+  const orders = rows.map(r => ({
+    loanCoin: r.loanCoin,
+    totalDebt: parseFloat(r.totalDebt),
+    collateralCoin: r.collateralCoin,
+    collateralAmount: parseFloat(r.collateralAmount),
+    currentLTV: parseFloat(r.currentLTV)
+  }));
+
+  return { success: true, status: "OK", data: orders };
+}
 
 /**
  * [工具] 更新資產總表 (Spot + Earn)
