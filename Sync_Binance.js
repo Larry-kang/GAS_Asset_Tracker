@@ -174,14 +174,40 @@ function updateBalanceSheet_(ss, spotResult, earnResult) {
   }
 
   // 正常合併邏輯
-  const spotMap = spotResult.success ? spotResult.data : new Map();
-  const earnMap = earnResult.success ? earnResult.data : new Map();
+  const spotData = spotResult.success ? spotResult.data : new Map();
+  const earnData = earnResult.success ? earnResult.data : new Map();
 
-  const combinedTotals = new Map(spotMap);
-  earnMap.forEach((val, asset) => {
-    const current = combinedTotals.get(asset) || 0;
-    combinedTotals.set(asset, current + val);
-  });
+  const combinedTotals = new Map();
+
+  // Helper to merge data into combinedTotals
+  const mergeData = (data) => {
+    if (!data) return;
+
+    // Case A: Map (Iterable)
+    if (data instanceof Map) {
+      data.forEach((val, key) => {
+        const current = combinedTotals.get(key) || 0;
+        combinedTotals.set(key, current + val);
+      });
+      return;
+    }
+
+    // Case B: Plain Object (Not Iterable)
+    if (typeof data === 'object') {
+      Object.keys(data).forEach(key => {
+        const val = data[key];
+        const current = combinedTotals.get(key) || 0;
+        combinedTotals.set(key, current + val);
+      });
+      return;
+    }
+
+    // Case C: Logging unexpected type
+    console.warn(`[Sync_Binance] Unexpected data type for merge: ${typeof data}`);
+  };
+
+  mergeData(spotData);
+  mergeData(earnData);
 
   const sheetData = [];
   combinedTotals.forEach((val, asset) => {
