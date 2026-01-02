@@ -1,94 +1,64 @@
 // =======================================================
-// --- Pionex 餘額查詢系統 (v2.1 - 除錯版) ---
-// --- 專門用於抓取「消失的屯幣寶」
-// --- 增加詳細日誌，不過濾任何幣種
+// --- Pionex 餘額查詢系統 (v2.2 - Standardized) ---
+// --- Refactored to use Lib_SyncManager
 // =======================================================
 
 function getPionexBalance() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName('Pionex Balance');
-  if (!sheet) {
-    sheet = ss.insertSheet('Pionex Balance');
-    sheet.appendRow(['幣種', '總額', 'Free', 'Frozen', 'Raw Data']);
-  }
+  const MODULE_NAME = "Sync_Pionex";
 
-  const props = PropertiesService.getScriptProperties();
-  const apiKey = props.getProperty('PIONEX_API_KEY');
-  const apiSecret = props.getProperty('PIONEX_API_SECRET');
+  SyncManager.run(MODULE_NAME, () => {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const props = PropertiesService.getScriptProperties();
+    const apiKey = props.getProperty('PIONEX_API_KEY');
+    const apiSecret = props.getProperty('PIONEX_API_SECRET');
+    const baseUrl = 'https://api.pionex.com';
+    const endpoint = '/api/v1/account/balances';
 
-  if (!apiKey || !apiSecret) {
-    ss.toast("錯誤：未設定 API Key/Secret");
-    return;
-  }
+    if (!apiKey || !apiSecret) {
+      SyncManager.log("ERROR", "錯誤：未設定 PIONEX_API_KEY / SECRET", MODULE_NAME);
+      return;
+    }
 
-  const baseUrl = 'https://api.pionex.com';
-  const endpoint = '/api/v1/account/balances';
-
-  try {
-    ss.toast('正在獲取 Pionex 完整數據 (Debug)...');
+    SyncManager.log("INFO", "正在獲取 Pionex 數據...", MODULE_NAME);
 
     // 呼叫 API
     const json = fetchPionexApi_(baseUrl, endpoint, {}, apiKey, apiSecret);
 
-    Logger.log("--- API 原始回應 (前 1000 字) ---");
-    Logger.log(JSON.stringify(json).substring(0, 1000));
-
     if (json.result === true && json.data && json.data.balances) {
-
-      const sheetData = [];
       const balances = json.data.balances;
+      SyncManager.log("INFO", `API 回傳了 ${balances.length} 個幣種資料`, MODULE_NAME);
 
-      Logger.log(`API 回傳了 ${balances.length} 個幣種資料`);
+      const assetsMap = new Map();
+      let debugRawData = [];
 
-      balances.forEach(function (b) {
+      balances.forEach(b => {
         const ccy = b.coin;
         const free = parseFloat(b.free) || 0;
         const frozen = parseFloat(b.frozen) || 0;
         const total = free + frozen;
 
-        // 修改：完全不過濾，只要 total > 0 就顯示，並記錄原始數據
+
         if (total > 0) {
-          sheetData.push([
-            ccy,
-            total,
-            free,
-            frozen,
-            JSON.stringify(b) // 把該幣種的原始 JSON 也寫進去，看看有沒有特殊欄位
-          ]);
+          assetsMap.set(ccy, total);
+          // 收集原始數據用於 Log (替代原本寫在 Sheet E 欄的做法，保持 UI 乾淨)
+          debugRawData.push(`${ccy}: ${JSON.stringify(b)}`);
         }
       });
 
-      // 排序
-      sheetData.sort((a, b) => b[1] - a[1]);
-
-      // 1. 強制寫入標題
-      const headers = ['幣種', '總額', 'Free', 'Frozen', 'Raw Data', '更新時間'];
-      sheet.getRange(1, 1, 1, 6).setValues([headers]);
-      sheet.getRange(1, 1, 1, 6).setFontWeight('bold');
-
-      // 寫入
-      sheet.getRange('A2:F').clearContent();
-
-      const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
-
-      if (sheetData.length > 0) {
-        sheet.getRange(2, 1, sheetData.length, 5).setValues(sheetData);
-        sheet.getRange(2, 6).setValue(timestamp);
-      } else {
-        sheet.getRange(2, 1, 1, 6).setValues([['No Assets', 0, 0, 0, '{}', timestamp]]);
+      // 寫入詳細 Log (給需要 Debug Raw Data 的人看)
+      if (debugRawData.length > 0) {
+        console.log("--- Pionex Raw Data Dump ---");
+        console.log(debugRawData.join("\n"));
       }
 
-      ss.toast(`更新完成！請檢查 'Pionex Balance' 的 E 欄 (Raw Data)`);
+      // 標準化寫入 Sheet
+      SyncManager.writeToSheet(ss, 'Pionex Balance', ['Currency', 'Total', 'Last Updated'], assetsMap);
+      SyncManager.log("INFO", "Pionex Sync Complete", MODULE_NAME);
 
     } else {
-      Logger.log("API Error: " + JSON.stringify(json));
-      ss.toast("API 回傳錯誤，請看日誌");
+      SyncManager.log("ERROR", `API Error: ${JSON.stringify(json)}`, MODULE_NAME);
     }
-
-  } catch (e) {
-    Logger.log('Error: ' + e.toString());
-    ss.toast('執行錯誤: ' + e.message);
-  }
+  });
 }
 
 // =======================================================
