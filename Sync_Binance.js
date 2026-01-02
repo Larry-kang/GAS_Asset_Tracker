@@ -243,7 +243,7 @@ function updateBalanceSheet_(ss, spotResult, earnResult) {
     sheet.getRange('A2:C').clearContent();
     sheet.getRange('A2:C').setFontColor('black'); // Reset color
     sheet.getRange(2, 1, sheetData.length, 2).setValues(sheetData);
-    sheet.getRange(2, 3).setValue(new Date());
+    sheet.getRange(2, 3).setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss"));
     ss.toast(`TwBinance 資產更新成功！(${sheetData.length} 幣種)`);
   } else {
     console.warn("[UpdateSheet] No non-zero assets found to write.");

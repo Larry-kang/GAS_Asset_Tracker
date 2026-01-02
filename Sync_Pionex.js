@@ -65,6 +65,7 @@ function getPionexBalance() {
       sheet.getRange('A2:E').clearContent();
       if (sheetData.length > 0) {
         sheet.getRange(2, 1, sheetData.length, 5).setValues(sheetData);
+        sheet.getRange("F2").setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss"));
       }
 
       ss.toast(`更新完成！請檢查 'Pionex Balance' 的 E 欄 (Raw Data)`);

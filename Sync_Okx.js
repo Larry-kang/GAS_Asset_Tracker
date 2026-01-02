@@ -158,7 +158,7 @@ function updateBalanceSheet_(ss, spotMap, earnMap) {
   sheet.clearContents();
   if (rows.length > 0) {
     sheet.getRange(1, 1, rows.length, 2).setValues(rows);
-    sheet.getRange("C1").setValue(new Date());
+    sheet.getRange(2, 3).setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss"));
   }
 }
 
