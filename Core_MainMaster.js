@@ -49,10 +49,10 @@ function runDailyCloseRoutine() {
 
         // [NEW] Build Context for Snapshot
         // We rebuild it to ensure we capture the state exactly as it is after sync
-        let context = null;
+        let snapshotContext = null;
         try {
             if (typeof buildContext === 'function') {
-                context = buildContext();
+                snapshotContext = buildContext();
             }
         } catch (e) {
             console.warn("[Snapshot] Context build failed, falling back to sheet read: " + e.message);
@@ -60,7 +60,7 @@ function runDailyCloseRoutine() {
 
         // Record snapshot with Context
         if (typeof autoRecordDailyValues === 'function') {
-            autoRecordDailyValues(context);
+            autoRecordDailyValues(snapshotContext);
         }
 
         // Send Daily Report (Email)
