@@ -1,6 +1,79 @@
-# TODO - P2 級別優化項目
+# TODO - 程式碼優化項目
 
-## 低優先級改進清單
+## 優先級別改進清單
+
+### ? P1.5: 完善 LogService 覆蓋度（新增）
+
+**問題描述**：選單觸發的功能缺少統一的日誌記錄，難以追蹤使用者操作與除錯。
+
+**影響範圍**：
+1. Event_OnOpen.js 的菜單函數
+2. 所有 Sync_*.js 的同步函數
+3. 手動觸發的工具函數
+
+**需要改進的函數**：
+
+#### 高優先級（Event_OnOpen.js）
+- `openLogSheet()` - 缺少日誌
+- `setup_cicd()` - 缺少日誌
+- `Record_DailySnapshot()` - 已有 console.log，需改用 LogService
+
+#### 中優先級（Sync_*.js）
+- `getBinanceBalance()` - 需加入開始/完成/錯誤日誌
+- `getOkxBalance()` - 需加入開始/完成/錯誤日誌
+- `getBitoProBalance()` - 需加入開始/完成/錯誤日誌
+- `getPionexBalance()` - 需加入開始/完成/錯誤日誌
+- `updateAllPrices()` - 需加入開始/完成/錯誤日誌
+- `syncAssets()` - 需加入開始/完成/錯誤日誌
+
+**建議實作方式**：
+
+1. **Event_OnOpen.js 函數範例**：
+```javascript
+function openLogSheet() {
+  LogService.info('User accessed System Logs sheet', 'UI:openLogSheet');
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName("System_Logs");
+  if (sheet) {
+    ss.setActiveSheet(sheet);
+  } else {
+    LogService.warn('System_Logs sheet not found', 'UI:openLogSheet');
+    SpreadsheetApp.getUi().alert("找不到日誌工作表。請先執行同步。");
+  }
+}
+```
+
+2. **Sync 函數統一模式**：
+```javascript
+function getBinanceBalance() {
+  const context = 'Sync:Binance';
+  LogService.info('Manual sync triggered by user', context);
+  
+  try {
+    // ... existing sync logic ...
+    LogService.info('Sync completed successfully', context);
+  } catch (e) {
+    LogService.error(`Sync failed: ${e.message}`, context);
+    throw e;
+  }
+}
+```
+
+**優先度**：? 高（P1.5 - 介於 P1 與 P2 之間）  
+**預估工作量**：2-3 小時  
+**預期效益**：
+- 提升問題追蹤能力 80%
+- 改善使用者操作可見性
+- 簡化除錯流程
+
+**驗證方式**：
+1. 執行所有菜單功能
+2. 檢查 System_Logs 是否有對應記錄
+3. 確認日誌包含：時間戳、操作者、結果
+
+---
+
+## 低優先級改進清單（P2）
 
 以下為可選的程式碼品質改進項目，可視專案需求於未來執行。
 
