@@ -1,7 +1,6 @@
 /**
- * @OnlyCurrentDoc
- * Sovereign Asset Protocol (SAP) v24.5 - Command Center Edition
- * Version: 24.5 (Bitcoin Standard / Treasury Edition)
+ * Sovereign Asset Protocol (SAP) - Command Center Edition
+ * Version: v24.6 (Bitcoin Standard / Treasury Edition)
  */
 
 const CONFIG = {
@@ -11,9 +10,9 @@ const CONFIG = {
     DASHBOARD: "Dashboard"
   },
   get EMAIL_RECIPIENT() {
-    const email = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAIL');
+    const email = Settings.get('ADMIN_EMAIL');
     if (!email) {
-      Logger.log("[WARNING] ScriptProperty 'ADMIN_EMAIL' not set.");
+      LogService.warn("ScriptProperty 'ADMIN_EMAIL' not set.", "Config:Email");
     }
     return email || "";
   },
@@ -26,8 +25,7 @@ const CONFIG = {
     CRYPTO_LOAN_RATIO_ALERT: 1.5,
     CRYPTO_LOAN_RATIO_CRITICAL: 1.3,
     get TREASURY_RESERVE_TWD() {
-      const val = PropertiesService.getScriptProperties().getProperty('TREASURY_RESERVE_TWD');
-      return val ? parseFloat(val) : 100000;
+      return Settings.getNumber('TREASURY_RESERVE_TWD', 100000);
     }
   },
   BTC_MARTINGALE: {
@@ -64,7 +62,7 @@ const RULES = [
     }
   },
   {
-    name: "BTC Martingale Sniper (v24.5)",
+    name: "BTC Martingale Sniper",
     phase: "All",
     condition: function (context) {
       return CONFIG.BTC_MARTINGALE.ENABLED &&
@@ -226,7 +224,7 @@ function runDailyInvestmentCheck() {
     if (alerts.length > 0) { sendEmailAlert(alerts, context); }
     else { sendAllClearEmail(context); }
   } catch (e) {
-    const email = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAIL');
+    const email = Settings.get('ADMIN_EMAIL');
     if (email) MailApp.sendEmail(email, "[錯誤] SAP 執行失敗", e.toString());
   }
 }
@@ -287,7 +285,7 @@ function updateDashboard(context) {
  */
 function setup() {
   const ui = SpreadsheetApp.getUi();
-  const props = PropertiesService.getScriptProperties();
+  // Settings manager handles internal properties
 
   // Step 1: Configure Admin Email
   const emailRes = ui.prompt(
@@ -299,8 +297,8 @@ function setup() {
   if (emailRes.getSelectedButton() == ui.Button.OK) {
     const email = emailRes.getResponseText().trim();
     if (email) {
-      props.setProperty('ADMIN_EMAIL', email);
-      console.log('[Setup] Email configured: ' + email);
+      Settings.set('ADMIN_EMAIL', email);
+      LogService.info('Email configured: ' + email, 'Setup');
     }
   }
 
@@ -315,8 +313,8 @@ function setup() {
   if (reserveRes.getSelectedButton() == ui.Button.OK) {
     const amount = parseFloat(reserveRes.getResponseText());
     if (!isNaN(amount) && amount > 0) {
-      props.setProperty('TREASURY_RESERVE_TWD', amount.toString());
-      console.log('[Setup] Treasury Reserve set to: ' + amount);
+      Settings.set('TREASURY_RESERVE_TWD', amount.toString());
+      LogService.info('Treasury Reserve set to: ' + amount, 'Setup');
     }
   }
 
@@ -394,7 +392,7 @@ function buildContext() {
     pledgeGroups,
     indicators,
     market,
-    phase: "Bitcoin Standard v24.5",
+    phase: "Bitcoin Standard " + Config.VERSION,
     totalGrossAssets: totalGrossAssets,
     netEntityValue: netEntityValue,
     rebalanceTargets: targets,
@@ -544,3 +542,4 @@ function sendEmailAlert(alerts, context) {
 function sendAllClearEmail(context) {
   MailApp.sendEmail(CONFIG.EMAIL_RECIPIENT, "[SAP 每日狀態] 一切正常", generatePortfolioSnapshot(context));
 }
+

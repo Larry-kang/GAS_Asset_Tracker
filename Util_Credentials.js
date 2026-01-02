@@ -11,23 +11,21 @@ const Credentials = {
      * @returns {Object} Keys object { apiKey, apiSecret, ...others }
      */
     get: function (exchange) {
-        const props = PropertiesService.getScriptProperties();
         const prefix = exchange.toUpperCase();
 
-        // Base keys
         const creds = {
-            apiKey: props.getProperty(`${prefix}_API_KEY`),
-            apiSecret: props.getProperty(`${prefix}_API_SECRET`)
+            apiKey: Settings.get(`${prefix}_API_KEY`),
+            apiSecret: Settings.get(`${prefix}_API_SECRET`)
         };
 
         // Exchange specific extras
         if (exchange === 'OKX') {
-            creds.apiPassphrase = props.getProperty('OKX_API_PASSPHRASE');
+            creds.apiPassphrase = Settings.get('OKX_API_PASSPHRASE');
         }
 
         if (exchange === 'BINANCE') {
-            creds.tunnelUrl = props.getProperty('TUNNEL_URL');
-            creds.proxyPassword = props.getProperty('PROXY_PASSWORD');
+            creds.tunnelUrl = Settings.get('TUNNEL_URL');
+            creds.proxyPassword = Settings.get('PROXY_PASSWORD');
         }
 
         return creds;
@@ -43,3 +41,4 @@ const Credentials = {
         return true;
     }
 };
+

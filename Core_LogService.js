@@ -85,3 +85,4 @@ const LogService = {
     error: function (msg, ctx) { this.log("ERROR", msg, ctx); },
     strategic: function (msg, ctx) { this.log("STRATEGIC", msg, ctx); }
 };
+

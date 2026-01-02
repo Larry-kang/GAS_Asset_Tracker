@@ -51,3 +51,4 @@ function GET_PRICE(ticker) {
         return "Err: " + e.toString().substring(0, 50);
     }
 }
+
