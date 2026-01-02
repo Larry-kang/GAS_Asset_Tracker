@@ -13,7 +13,7 @@ function getBitoProBalance() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheetName = 'BitoPro Balance';
   let sheet = ss.getSheetByName(sheetName);
-  
+
   // 若無分頁則自動建立
   if (!sheet) {
     sheet = ss.insertSheet(sheetName);
@@ -35,32 +35,32 @@ function getBitoProBalance() {
 
   try {
     ss.toast('正在獲取 BitoPro 帳戶餘額...');
-    
+
     // --- 1. 獲取帳戶餘額 ---
     const endpoint = '/accounts/balance';
     const json = fetchBitoProApi_(baseUrl, endpoint, 'GET', {}, apiKey, apiSecret);
 
     if (json && json.data) {
       logMessages.push("1. 帳戶餘額 API OK");
-      
+
       // 過濾與整理資料
-      json.data.forEach(function(b) {
+      json.data.forEach(function (b) {
         // ⭐ 修正：官方欄位是 amount (總額), available (可用), stake (圈存/凍結)
-        const total = parseFloat(b.amount) || 0; 
+        const total = parseFloat(b.amount) || 0;
         const available = parseFloat(b.available) || 0;
         const stake = parseFloat(b.stake) || 0;
 
         // 只記錄有餘額的幣種
         if (total > 0) {
           sheetData.push([
-            b.currency.toUpperCase(), 
-            total, 
-            available, 
+            b.currency.toUpperCase(),
+            total,
+            available,
             stake
           ]);
         }
       });
-      
+
     } else {
       logMessages.push("1. 帳戶餘額 FAILED: " + (json.error || 'Unknown Error'));
     }
@@ -82,7 +82,7 @@ function getBitoProBalance() {
     if (sheetData.length > 0) {
       sheet.getRange(2, 1, sheetData.length, 4).setValues(sheetData);
       // 在 E2 儲存更新時間
-      sheet.getRange(2, 5).setValue(new Date());
+      sheet.getRange(2, 5).setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss"));
     }
 
     Logger.log('成功更新 ' + sheetData.length + ' 種 BitoPro 資產餘額。');
@@ -100,8 +100,8 @@ function getBitoProBalance() {
  */
 function fetchBitoProApi_(baseUrl, endpoint, method, params, apiKey, apiSecret) {
   // ⭐ 修正點：將時間往回推 2000 毫秒 (2秒) 以容許網路延遲與時間誤差
-  const nonce = Date.now() - 2000; 
-  
+  const nonce = Date.now() - 2000;
+
   const payloadObj = { ...params, nonce: nonce };
   const payloadJson = JSON.stringify(payloadObj);
   const payloadBase64 = Utilities.base64Encode(payloadJson);
@@ -128,7 +128,7 @@ function fetchBitoProApi_(baseUrl, endpoint, method, params, apiKey, apiSecret) 
   const url = baseUrl + endpoint;
 
   Logger.log(`----- Requesting BitoPro API: ${endpoint} -----`);
-  
+
   try {
     const response = UrlFetchApp.fetch(url, options);
     const responseCode = response.getResponseCode();
@@ -157,9 +157,9 @@ function getBitoProSignature_(payloadBase64, apiSecret) {
     payloadBase64,
     apiSecret
   );
-  
+
   // Convert Byte Array to Hex String
-  return signatureBytes.map(function(byte) {
+  return signatureBytes.map(function (byte) {
     return ('0' + (byte & 0xFF).toString(16)).slice(-2);
   }).join('');
 }
