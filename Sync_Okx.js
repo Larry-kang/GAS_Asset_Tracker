@@ -133,17 +133,32 @@ function updateBalanceSheet_(ss, spotMap, earnMap) {
   const SHEET_NAME = 'OKX Balance';
   let sheet = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
 
-  const combined = new Map(spotMap);
-  earnMap.forEach((v, k) => combined.set(k, (combined.get(k) || 0) + v));
+  // 建立合併容器
+  const combined = new Map();
+
+  // 定義合併 Helper (防止 Object vs Map 型別錯誤)
+  const mergeData = (data) => {
+    if (!data) return;
+    if (data instanceof Map) {
+      data.forEach((v, k) => combined.set(k, (combined.get(k) || 0) + v));
+    } else if (typeof data === 'object') {
+      Object.keys(data).forEach(k => combined.set(k, (combined.get(k) || 0) + data[k]));
+    } else {
+      console.warn(`[Sync_Okx] Unknown data type: ${typeof data}`);
+    }
+  };
+
+  mergeData(spotMap);
+  mergeData(earnMap);
 
   const rows = [];
   combined.forEach((v, k) => { if (v > 0) rows.push([k, v]); });
-  rows.sort((a, b) => b[1] - a[1]);
+  rows.sort((a, b) => b[1] - a[1]); // Descending Sort
 
-  sheet.getRange('A2:C').clearContent();
+  sheet.clearContents();
   if (rows.length > 0) {
-    sheet.getRange(2, 1, rows.length, 2).setValues(rows);
-    sheet.getRange(2, 3).setValue(new Date());
+    sheet.getRange(1, 1, rows.length, 2).setValues(rows);
+    sheet.getRange("C1").setValue(new Date());
   }
 }
 
