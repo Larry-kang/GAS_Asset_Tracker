@@ -47,21 +47,25 @@ function getOkxBalance() {
     // C. Flexible Loan Orders
     const loanRes = fetchOkxLoans_(baseUrl, apiKey, apiSecret, apiPassphrase);
     if (loanRes.success && loanRes.data) {
-      loanRes.data.forEach(order => {
-        assetList.push({
-          ccy: order.loanCoin,
-          amt: -Math.abs(order.totalDebt),
-          type: 'Loan',
-          status: 'Debt',
-          meta: `Flex Loan (LTV: ${(order.currentLTV * 100).toFixed(2)}%)`
-        });
-        assetList.push({
-          ccy: order.collateralCoin,
-          amt: order.collateralAmount,
-          type: 'Loan',
-          status: 'Collateral',
-          meta: `Ref: ${order.loanCoin}`
-        });
+      loanRes.data.forEach(item => {
+        if (item.type === 'Debt') {
+          assetList.push({
+            ccy: item.loanCoin,
+            amt: -Math.abs(item.totalDebt),
+            type: 'Loan',
+            status: 'Debt',
+            meta: `Flex Loan (LTV: ${(item.currentLTV * 100).toFixed(2)}%)`
+          });
+        }
+        else if (item.type === 'Collateral') {
+          assetList.push({
+            ccy: item.collateralCoin,
+            amt: item.collateralAmount,
+            type: 'Loan',
+            status: 'Collateral',
+            meta: `Flex Collateral`
+          });
+        }
       });
     } else {
       // Loan failing is common if no loans exist or permissions missing
@@ -108,19 +112,38 @@ function fetchOkxEarn_(baseUrl, apiKey, apiSecret, apiPassphrase) {
 }
 
 function fetchOkxLoans_(baseUrl, apiKey, apiSecret, apiPassphrase) {
-  // Try fetching flexible loans
-  const res = fetchOkxApi_(baseUrl, '/api/v5/finance/flexible-loan/orders', { state: 'alive' }, apiKey, apiSecret, apiPassphrase);
+  // Use 'loan-info' instead of 'orders' for unified flexible loan position
+  const res = fetchOkxApi_(baseUrl, '/api/v5/finance/flexible-loan/loan-info', {}, apiKey, apiSecret, apiPassphrase);
+
   if (res.code === "0") {
     const rawList = [];
-    if (res.data) {
-      res.data.forEach(o => {
-        rawList.push({
-          loanCoin: o.loanCcy,
-          totalDebt: parseFloat(o.loanAmt || 0) + parseFloat(o.interest || 0),
-          collateralCoin: o.collateralCcy,
-          collateralAmount: parseFloat(o.collateralAmt || 0),
-          currentLTV: parseFloat(o.curLtv || 0)
-        });
+    if (res.data && Array.isArray(res.data)) {
+      res.data.forEach(entry => {
+        const ltv = entry.curLTV || "0";
+
+        // 1. Debt
+        if (entry.loanData) {
+          entry.loanData.forEach(l => {
+            rawList.push({
+              loanCoin: l.ccy,
+              totalDebt: parseFloat(l.amt),
+              type: 'Debt',
+              currentLTV: parseFloat(ltv)
+            });
+          });
+        }
+
+        // 2. Collateral
+        if (entry.collateralData) {
+          entry.collateralData.forEach(c => {
+            rawList.push({
+              collateralCoin: c.ccy,
+              collateralAmount: parseFloat(c.amt),
+              type: 'Collateral',
+              currentLTV: parseFloat(ltv)
+            });
+          });
+        }
       });
     }
     return { success: true, data: rawList };
