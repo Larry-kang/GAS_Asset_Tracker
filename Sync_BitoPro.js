@@ -8,9 +8,8 @@ function getBitoProBalance() {
 
   SyncManager.run(MODULE_NAME, () => {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const props = PropertiesService.getScriptProperties();
-    const apiKey = props.getProperty('BITOPRO_API_KEY');
-    const apiSecret = props.getProperty('BITOPRO_API_SECRET');
+    const creds = Credentials.get('BITOPRO');
+    const { apiKey, apiSecret } = creds;
     const baseUrl = 'https://api.bitopro.com/v3';
 
     if (!apiKey || !apiSecret) {

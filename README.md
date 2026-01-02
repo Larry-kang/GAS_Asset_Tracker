@@ -62,6 +62,43 @@ SAP 是一套建構於 Google Apps Script (GAS) 之上的無伺服器 (Serverles
 └── setup_cicd.ps1      # [部署] 憑證自動化設定腳本
 ```
 
+### 🔗 Webhook API (Tunneling)
+
+本系統支援接收來自地端橋接器 (PowerShell) 的 POST 請求，以實現內網穿透與狀態回報。
+
+**Endpoint**: `[您的 Google Web App URL]`
+
+**不支援 GET 請求**，僅接受 POST。所有請求必須包含 `action` 欄位。
+
+#### 1. 更新穿透網址 (Update Tunnel)
+用於電腦端將最新的 ngrok/cloudflared 公開網址回報給 GAS。
+```json
+{
+  "action": "update_tunnel_url",
+  "url": "https://xxxx-xxxx.ngrok.io",
+  "password": "[PROXY_PASSWORD]"
+}
+```
+
+#### 2. 觸發餘額更新 (Trigger Sync)
+強制 GAS 執行一次餘額同步 (預設同步 Binance)。
+```json
+{
+  "action": "trigger_balance_update",
+  "password": "[PROXY_PASSWORD]"
+}
+```
+
+#### 3. 客戶端錯誤回報 (Log Error)
+將電腦端發生的錯誤記錄到 GAS 日誌。
+```json
+{
+  "action": "log_client_error",
+  "message": "PowerShell Script Crashing...",
+  "password": "[PROXY_PASSWORD]"
+}
+```
+
 ---
 
 ## 快速開始 (Quick Start)

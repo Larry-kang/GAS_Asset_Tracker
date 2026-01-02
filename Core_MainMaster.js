@@ -6,7 +6,7 @@
  */
 function runAutomationMaster() {
     const context = "MasterLoop";
-    console.log(`[${context}] Starting Automation V24.5 Routine...`);
+    console.log(`[${context}] Starting Automation ${Config.VERSION} Routine...`);
 
     try {
         // 1. Update Market Prices (Crypto + Stock)

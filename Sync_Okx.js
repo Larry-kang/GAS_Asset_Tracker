@@ -8,10 +8,8 @@ function getOkxBalance() {
 
   SyncManager.run(MODULE_NAME, () => {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const props = PropertiesService.getScriptProperties();
-    const apiKey = props.getProperty('OKX_API_KEY');
-    const apiSecret = props.getProperty('OKX_API_SECRET');
-    const apiPassphrase = props.getProperty('OKX_API_PASSPHRASE');
+    const creds = Credentials.get('OKX');
+    const { apiKey, apiSecret, apiPassphrase } = creds;
     const baseUrl = 'https://www.okx.com';
 
     if (!apiKey || !apiSecret || !apiPassphrase) {

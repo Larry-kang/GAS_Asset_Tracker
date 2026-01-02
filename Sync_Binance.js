@@ -8,13 +8,10 @@ function getBinanceBalance() {
 
   SyncManager.run(MODULE_NAME, () => {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const props = PropertiesService.getScriptProperties();
-    const apiKey = props.getProperty('BINANCE_API_KEY');
-    const apiSecret = props.getProperty('BINANCE_API_SECRET');
-    const baseUrl = props.getProperty('TUNNEL_URL');
-    const proxyPassword = props.getProperty('PROXY_PASSWORD');
+    const creds = Credentials.get('BINANCE');
+    const { apiKey, apiSecret, tunnelUrl: baseUrl, proxyPassword } = creds;
 
-    if (!apiKey || !apiSecret) {
+    if (!Credentials.isValid(creds)) {
       SyncManager.log("ERROR", "Missing BINANCE_API_KEY or SECRET", MODULE_NAME);
       return;
     }
