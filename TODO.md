@@ -2,7 +2,7 @@
 
 ## 優先級別改進清單
 
-### ? P1.5: 完善 LogService 覆蓋度（新增）
+### P1.5: 完善 LogService 覆蓋度（新增）
 
 **問題描述**：選單觸發的功能缺少統一的日誌記錄，難以追蹤使用者操作與除錯。
 
@@ -59,7 +59,7 @@ function getBinanceBalance() {
 }
 ```
 
-**優先度**：? 高（P1.5 - 介於 P1 與 P2 之間）  
+**優先度**：高 (P1.5)
 **預估工作量**：2-3 小時  
 **預期效益**：
 - 提升問題追蹤能力 80%
@@ -79,7 +79,7 @@ function getBinanceBalance() {
 
 ---
 
-### ? P2-1: Legacy 支援檔案標記
+###  P2-1: Legacy 支援檔案標記
 **檔案**：Util_LegacySupport.js  
 **狀態**：活躍使用中（被 Sync_Assets.js 引用）  
 **建議**：確認是否計劃廢除，若否則移除 "Legacy" 命名以避免誤解
@@ -89,7 +89,7 @@ function getBinanceBalance() {
 
 ---
 
-### ? P2-2: 測試檔案註解不足
+###  P2-2: 測試檔案註解不足
 **檔案**：Test_SAP_Simulation.js  
 **建議**：加上執行方式與預期輸出的說明
 
@@ -111,7 +111,7 @@ function getBinanceBalance() {
 
 ---
 
-### ? P2-3: API 憑證管理改進
+###  P2-3: API 憑證管理改進
 **位置**：所有 Sync_*.js  
 **建議**：統一從 PropertiesService 讀取，避免重複代碼
 
@@ -140,7 +140,7 @@ function getExchangeCredentials(exchange) {
 
 ---
 
-### ? P2-4: 建立版本號常量
+### P2-4: 建立版本號常量
 **建議**：在 Core_StrategicEngine.js 或新建 Config.js 定義版本號
 
 **範例**：
@@ -156,7 +156,7 @@ const SYSTEM_NAME = "SAP - Sovereign Asset Protocol";
 
 ---
 
-### ? P2-5: Webhook 端點文件化
+### P2-5: Webhook 端點文件化
 **檔案**：Event_Webhook.js  
 **建議**：在 README 加入 Webhook API 規格說明
 
@@ -171,7 +171,7 @@ const SYSTEM_NAME = "SAP - Sovereign Asset Protocol";
 
 ---
 
-### ? P2-6: IMPORTJSON 標記為工具函數
+###  P2-6: IMPORTJSON 標記為工具函數
 **檔案**：Util_ImportJSON.js  
 **建議**：加上 `@customfunction` JSDoc 標籤
 

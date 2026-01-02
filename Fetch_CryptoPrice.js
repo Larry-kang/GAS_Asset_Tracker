@@ -12,42 +12,59 @@
 // 主更新函式 - 請將此函式設定為每15或30分鐘觸發一次
 // =======================================================
 function updateAllPrices() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('價格暫存');
-  if (!sheet) {
-    Logger.log("錯誤：找不到名為 '價格暫存' 的工作表。");
-    return;
-  }
+  const MODULE_NAME = 'Fetch_CryptoPrice';
+  const context = 'updateAllPrices';
+  LogService.info('Starting Market Price Update...', MODULE_NAME);
 
-  const dataRange = sheet.getRange('A2:D' + sheet.getLastRow());
-  const data = dataRange.getValues();
-  const currentTime = new Date();
-  const CACHE_DURATION = 1 * 60 * 1000; // 快取時間：15分鐘
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('價格暫存');
+    if (!sheet) {
+      const msg = "錯誤：找不到名為 '價格暫存' 的工作表。";
+      LogService.error(msg, MODULE_NAME);
+      return;
+    }
 
-  for (let i = 0; i < data.length; i++) {
-    const ticker = data[i][0];
-    const type = data[i][1];
-    const lastUpdated = data[i][3];
+    const dataRange = sheet.getRange('A2:D' + sheet.getLastRow());
+    const data = dataRange.getValues();
+    const currentTime = new Date();
+    const CACHE_DURATION = 1 * 60 * 1000; // 快取時間：1分鐘 (原15分似太久, 配合高頻監控調整)
 
-    // 檢查標的是否存在，以及是否需要更新
-    if (ticker && (!lastUpdated || (currentTime.getTime() - new Date(lastUpdated).getTime()) > CACHE_DURATION)) {
-      let price = null;
+    let updatedCount = 0;
+    let failedCount = 0;
 
-      // 根據資產類型，呼叫不同的價格獲取“調度中心”
-      if (type === "數位幣" || type === "數位穩定幣") {
-        price = fetchCryptoPrice(ticker);
-      } else { // 假設其他皆為股票
-        price = fetchStockPrice(ticker);
-      }
+    for (let i = 0; i < data.length; i++) {
+      const ticker = data[i][0];
+      const type = data[i][1];
+      const lastUpdated = data[i][3];
 
-      // 如果成功獲取價格，則更新到工作表中
-      if (typeof price === 'number' && !isNaN(price)) {
-        sheet.getRange(i + 2, 3).setValue(price); // 更新價格
-        sheet.getRange(i + 2, 4).setValue(currentTime); // 更新時間戳
-        Logger.log(`[OK] 成功更新 ${ticker} 的價格: ${price}`);
-      } else {
-        Logger.log(`[FAILED] 更新 ${ticker} 的價格失敗。`);
+      // 檢查標的是否存在，以及是否需要更新
+      if (ticker && (!lastUpdated || (currentTime.getTime() - new Date(lastUpdated).getTime()) > CACHE_DURATION)) {
+        let price = null;
+
+        // 根據資產類型，呼叫不同的價格獲取“調度中心”
+        if (type === "數位幣" || type === "數位穩定幣") {
+          price = fetchCryptoPrice(ticker);
+        } else { // 假設其他皆為股票
+          price = fetchStockPrice(ticker);
+        }
+
+        // 如果成功獲取價格，則更新到工作表中
+        if (typeof price === 'number' && !isNaN(price)) {
+          sheet.getRange(i + 2, 3).setValue(price); // 更新價格
+          sheet.getRange(i + 2, 4).setValue(currentTime); // 更新時間戳
+          updatedCount++;
+          // Logger.log(`[OK] 成功更新 ${ticker} 的價格: ${price}`); // 減少細節日誌以節省空間
+        } else {
+          failedCount++;
+          LogService.warn(`[FAILED] 更新 ${ticker} 的價格失敗。`, MODULE_NAME);
+        }
       }
     }
+
+    LogService.info(`Price Update Completed. Updated: ${updatedCount}, Failed: ${failedCount}`, MODULE_NAME);
+
+  } catch (e) {
+    LogService.error(`Price Update Failed: ${e.message}`, MODULE_NAME);
   }
 }
 

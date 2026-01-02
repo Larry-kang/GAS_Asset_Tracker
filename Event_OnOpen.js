@@ -45,11 +45,13 @@ function onOpen() {
  * @public
  */
 function openLogSheet() {
+  LogService.info('User accessed System Logs sheet', 'UI:openLogSheet');
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName("System_Logs");
   if (sheet) {
     ss.setActiveSheet(sheet);
   } else {
+    LogService.warn('System_Logs sheet not found', 'UI:openLogSheet');
     SpreadsheetApp.getUi().alert("找不到日誌工作表。請先執行同步。");
   }
 }
@@ -61,6 +63,8 @@ function openLogSheet() {
  */
 function Record_DailySnapshot() {
   const ui = SpreadsheetApp.getUi();
+  const context = 'UI:Record_DailySnapshot';
+  LogService.info('User triggered manual daily snapshot', context);
 
   try {
     if (typeof autoRecordDailyValues === 'function') {
@@ -70,12 +74,12 @@ function Record_DailySnapshot() {
         '每日資產快照已成功寫入 Daily History 工作表。',
         ui.ButtonSet.OK
       );
-      console.log('[Record_DailySnapshot] Manual snapshot completed successfully.');
+      LogService.info('Manual snapshot completed successfully', context);
     } else {
       throw new Error("找不到 autoRecordDailyValues 函數");
     }
   } catch (e) {
-    console.error('[Record_DailySnapshot] 執行失敗:', e);
+    LogService.error(`Execution failed: ${e.message}`, context);
     ui.alert(
       '❌ 快照記錄失敗',
       `執行時發生錯誤：\n${e.message}\n\n請檢查 Record_DailySnapshot.js 是否正確載入。`,
@@ -89,6 +93,7 @@ function Record_DailySnapshot() {
  * 由於 CI/CD 是在 GitHub Actions 執行，此處僅跳出指引視窗
  */
 function setup_cicd() {
+  LogService.info('User requested CI/CD setup guide', 'UI:setup_cicd');
   const ui = SpreadsheetApp.getUi();
   const msg = "CI/CD 自動化部署設定須在本地端執行。\n\n" +
     "請在您的電腦上執行以下 PowerShell 腳本：\n" +
