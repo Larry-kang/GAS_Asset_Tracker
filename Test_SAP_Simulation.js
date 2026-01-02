@@ -117,6 +117,11 @@ function buildMockContext(overrides) {
     phase: "Simulation",
     rebalanceTargets: [],
     netEntityValue: 2000000,
-    totalGrossAssets: 3000000 // Mock Total
+    totalGrossAssets: 3000000, // Mock Total
+    assetGroups: [
+      { id: "L1", target: 0.60, name: "Layer 1" },
+      { id: "L2", target: 0.30, name: "Layer 2" },
+      { id: "L3", target: 0.10, name: "Layer 3" }
+    ]
   };
 }

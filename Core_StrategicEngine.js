@@ -39,9 +39,9 @@ const CONFIG = {
     ]
   },
   ASSET_GROUPS: [
-    { name: "Layer 1: Digital Reserve (Attack)", target: 0.60, tickers: ["IBIT", "BTC_Spot", "BTC"] },
-    { name: "Layer 2: Credit Base (Defend)", target: 0.30, tickers: ["00713", "00662", "QQQ"] },
-    { name: "Layer 3: Tactical Liquidity", target: 0.10, tickers: ["BOXX", "CASH_TWD", "USDT", "USDC"] }
+    { id: "L1", name: "Layer 1: Digital Reserve (Attack)", defaultTarget: 0.60, tickers: ["IBIT", "BTC_Spot", "BTC"] },
+    { id: "L2", name: "Layer 2: Credit Base (Defend)", defaultTarget: 0.30, tickers: ["00713", "00662", "QQQ"] },
+    { id: "L3", name: "Layer 3: Tactical Liquidity", defaultTarget: 0.10, tickers: ["BOXX", "CASH_TWD", "USDT", "USDC"] }
   ],
   NOISE_ASSETS: ["ETH", "BNB", "TQQQ"]
 };
@@ -108,10 +108,11 @@ const RULES = [
     },
     getAction: function (context) {
       // Priority 1: Check L1 Spot Ratio
-      if (context.indicators.l1SpotRatio < 0.60) { // 60% hard target
+      const l1Target = context.assetGroups ? context.assetGroups[0].target : 0.60;
+      if (context.indicators.l1SpotRatio < l1Target) {
         return {
           level: "[配置] 資金流向建議 (補強地基)",
-          message: "L1 現貨佔比 (" + (context.indicators.l1SpotRatio * 100).toFixed(1) + "%) 低於 60%。",
+          message: "L1 現貨佔比 (" + (context.indicators.l1SpotRatio * 100).toFixed(1) + "%) 低於 " + (l1Target * 100).toFixed(0) + "%。",
           action: "將盈餘/現金 100% 買入現貨 BTC (存放於冷錢包/OKX)。"
         };
       }
@@ -368,7 +369,18 @@ function buildContext() {
 
   market.surplus = liquidity - (monthlyDebt * 3);
 
-  // Phase 4: 自動質押引擎
+  // Phase 4: 動態資產配置目標注入 (v24.6.1)
+  const assetGroups = CONFIG.ASSET_GROUPS.map(group => {
+    let dynamicTarget = group.defaultTarget;
+    const key = "Alloc_" + group.id + "_Target";
+    // 如果工作表中有設定特定目標，則覆蓋預設值
+    if (indicatorsRaw[key] !== undefined && !isNaN(indicatorsRaw[key])) {
+      dynamicTarget = indicatorsRaw[key];
+    }
+    return { ...group, target: dynamicTarget };
+  });
+
+  // Phase 5: 自動質押引擎
   const pledgeGroups = calculateAutoPledgeRatios(rawPortfolio, {});
 
   // Phase 5: 再平衡目標
@@ -380,8 +392,8 @@ function buildContext() {
     isValid: pledgeGroups.length > 0,
     maintenanceRatio: (pledgeGroups.find(g => g.name === "Pledge") || pledgeGroups[0] || { ratio: 0 }).ratio,
     binanceMaintenanceRatio: (pledgeGroups.find(g => g.name === "Binance") || { ratio: 0 }).ratio,
-    l1SpotRatio: totalGrossAssets > 0 ? (calculateGroupValue(portfolioSummary, CONFIG.ASSET_GROUPS[0]) / totalGrossAssets) : 0,
-    totalBtcRatio: totalGrossAssets > 0 ? (calculateGroupValue(portfolioSummary, CONFIG.ASSET_GROUPS[0]) / totalGrossAssets) : 0,
+    l1SpotRatio: totalGrossAssets > 0 ? (calculateGroupValue(portfolioSummary, assetGroups[0]) / totalGrossAssets) : 0,
+    totalBtcRatio: totalGrossAssets > 0 ? (calculateGroupValue(portfolioSummary, assetGroups[0]) / totalGrossAssets) : 0,
     survivalRunway: survivalRunway,
     ltv: totalGrossAssets > 0 ? (totalGrossAssets - netEntityValue) / totalGrossAssets : 0
   };
@@ -392,6 +404,7 @@ function buildContext() {
     pledgeGroups,
     indicators,
     market,
+    assetGroups, // 注入動態生成的組態
     phase: "Bitcoin Standard " + Config.VERSION,
     totalGrossAssets: totalGrossAssets,
     netEntityValue: netEntityValue,
@@ -411,7 +424,10 @@ function fetchMarketIndicators(sheet) {
     "Current_BTC_Price",
     // "Total_BTC_Ratio", // Deprecated: Calculated in code v24.5
     "MAX_MARTINGALE_BUDGET",
-    "MONTHLY_DEBT_COST"
+    "MONTHLY_DEBT_COST",
+    "Alloc_L1_Target",
+    "Alloc_L2_Target",
+    "Alloc_L3_Target"
   ];
 
   for (let i = 0; i < data.length; i++) {
@@ -515,15 +531,14 @@ function generatePortfolioSnapshot(context) {
   }
 
   s += "\n[III] 資產配置 (ASSET ALLOCATION)\n";
-  CONFIG.ASSET_GROUPS.forEach(group => {
+  const groupsToDisplay = context.assetGroups || CONFIG.ASSET_GROUPS;
+  groupsToDisplay.forEach(group => {
     let groupValue = 0;
     group.tickers.forEach(t => groupValue += (portfolioSummary[t] || 0));
 
-    // Safety check for Noise Assets not in groups might be needed, but for now stick to groups
-    // Actually, calculate total based on group tickers for percentage might differ from totalGrossAssets if there are unclassified assets.
-    // Use totalGrossAssets as denominator.
     const pct = totalGrossAssets > 0 ? (groupValue / totalGrossAssets * 100) : 0;
-    s += "- " + group.name.split(":")[0] + ": " + Math.round(groupValue).toLocaleString() + " (" + pct.toFixed(1) + "%)\n";
+    const targetPct = (group.target || group.defaultTarget || 0) * 100;
+    s += "- " + group.name.split(":")[0] + ": " + Math.round(groupValue).toLocaleString() + " (" + pct.toFixed(1) + "% / 目標 " + targetPct.toFixed(0) + "%)\n";
   });
 
   s += "----------------------------------------\n";
