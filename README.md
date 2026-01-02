@@ -12,8 +12,9 @@ SAP 是一套建構於 Google Apps Script (GAS) 之上的無伺服器 (Serverles
 
 ## 核心功能 (Core Features)
 
-### 1. 全自動數據同步 (Hyper-Sync Engine)
-*   **多源整合**: 支援 Binance, OKX, Pionex, BitoPro 四大交易所餘額同步。
+### 1. Unified Asset Ledger (全域資產總帳)
+*   **單一事實來源**: 導入 `Lib_SyncManager`，將 Binance, OKX, Pionex, BitoPro 數據標準化為統一格式 (`Exchange`, `Type`, `Currency`, `Amount`, `Status`)。
+*   **原子化更新**: 採 Exchange-Level Atomic Replacement 策略，確保數據一致性。
 *   **台股串接**: 自動抓取 TWSE 融資維持率與庫存市值。
 *   **匯率換算**: 透過 Google Finance 與自建 API，即時計算 TWD/USD 總資產淨值 (NAV)。
 
@@ -53,6 +54,7 @@ SAP 是一套建構於 Google Apps Script (GAS) 之上的無伺服器 (Serverles
 ```
 /
 ├── Core_*.js           # [核心層] 戰略引擎、日誌服務、主控路徑
+├── Lib_*.js            # [函式庫] 通用介面 (SyncManager, API Wrappers)
 ├── Event_*.js          # [事件層] 觸發器 (OnOpen, Webhook)
 ├── Sync_*.js           # [同步層] 各大交易所 API 實作 (Binance, OKX...)
 ├── Util_*.js           # [工具層] 通用工具 (HealthCheck, TWSE...)
