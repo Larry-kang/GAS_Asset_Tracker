@@ -128,37 +128,51 @@ function fetchOkxLoans_(baseUrl, apiKey, apiSecret, apiPassphrase) {
   }
 }
 
-// ... updateBalanceSheet_ (保持不變) ...
-function updateBalanceSheet_(ss, spotMap, earnMap) {
-  const SHEET_NAME = 'OKX Balance';
-  let sheet = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
+/**
+ * [工具] 更新資產總表
+ */
+function updateBalanceSheet_(ss, spotData, earnData) {
+  let sheet = ss.getSheetByName('OKX Balance');
+  if (!sheet) sheet = ss.insertSheet('OKX Balance');
 
-  // 建立合併容器
+  // 1. 強制寫入標題
+  sheet.getRange('A1:C1').setValues([['Currency', 'Total', 'Last Updated']]);
+  sheet.getRange('A1:C1').setFontWeight('bold').setBackground('#e6f7ff');
+
   const combined = new Map();
 
-  // 定義合併 Helper (防止 Object vs Map 型別錯誤)
   const mergeData = (data) => {
     if (!data) return;
     if (data instanceof Map) {
-      data.forEach((v, k) => combined.set(k, (combined.get(k) || 0) + v));
+      data.forEach((val, key) => {
+        const current = combined.get(key) || 0;
+        combined.set(key, current + val);
+      });
     } else if (typeof data === 'object') {
-      Object.keys(data).forEach(k => combined.set(k, (combined.get(k) || 0) + data[k]));
-    } else {
-      console.warn(`[Sync_Okx] Unknown data type: ${typeof data}`);
+      Object.keys(data).forEach(key => {
+        const val = data[key];
+        const current = combined.get(key) || 0;
+        combined.set(key, current + val);
+      });
     }
   };
 
-  mergeData(spotMap);
-  mergeData(earnMap);
+  mergeData(spotData);
+  mergeData(earnData);
 
   const rows = [];
   combined.forEach((v, k) => { if (v > 0) rows.push([k, v]); });
   rows.sort((a, b) => b[1] - a[1]); // Descending Sort
 
-  sheet.clearContents();
+  sheet.getRange('A2:C').clearContent();
+  const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+
   if (rows.length > 0) {
-    sheet.getRange(1, 1, rows.length, 2).setValues(rows);
-    sheet.getRange(2, 3).setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss"));
+    sheet.getRange(2, 1, rows.length, 2).setValues(rows);
+    sheet.getRange(2, 3).setValue(timestamp);
+  } else {
+    // 顯示無資產
+    sheet.getRange(2, 1, 1, 3).setValues([['No Assets', 0, timestamp]]);
   }
 }
 
