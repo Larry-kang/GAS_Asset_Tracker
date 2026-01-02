@@ -5,12 +5,16 @@
  * Purpose: Standardize 'Data Merge', 'Sheet Writing', 'Logging', and 'Error Handling'.
  * 
  * Key Features:
- * 1. writeToSheet: Handles Headers, ISO Time, Sorting, Clearing, and Empty State.
- * 2. mergeAssets: Robustly merges multiple Maps or Objects into one Map.
- * 3. log: Routes unified logs to System_Logs via LogService.
+ * 1. updateUnifiedLedger: Unified Asset Ledger (Upsert/Replace by Exchange).
+ * 2. log: Routes unified logs to System_Logs via LogService.
+ * 3. run: Execution wrapper with error handling.
  */
 
 const SyncManager = {
+
+    // Unified Ledger Configuration
+    LEDGER_SHEET_NAME: "Unified Assets",
+    LEDGER_HEADERS: ["Exchange", "Currency", "Amount", "Type", "Status", "Meta", "Updated"],
 
     /**
      * [Core] Execution Wrapper
@@ -25,131 +29,96 @@ const SyncManager = {
             this.log("INFO", `[${moduleName}] Sync Finished`, moduleName);
         } catch (e) {
             this.log("ERROR", `Execution Crashed: ${e.message}`, moduleName);
-            // Toast for immediate user feedback
             try { SpreadsheetApp.getActiveSpreadsheet().toast(`${moduleName} Error: ${e.message}`); } catch (ignore) { }
             console.error(e);
         }
     },
 
     /**
-     * [Core] Universal Asset Merger
-     * Merges multiple Maps or Objects into a single Map.
-     * @param {...(Map|Object)} sources - Data sources
-     * @returns {Map<string, number>} Merged Map (Key: Currency, Value: Amount)
-     */
-    mergeAssets: function (...sources) {
-        const combined = new Map();
-        let totalSources = 0;
-        let totalItems = 0;
-
-        sources.forEach((source, index) => {
-            if (!source) return;
-            totalSources++;
-            let count = 0;
-
-            // Case A: Map
-            if (source instanceof Map) {
-                source.forEach((val, key) => {
-                    const current = combined.get(key) || 0;
-                    combined.set(key, current + val);
-                    count++;
-                });
-            }
-            // Case B: Object
-            else if (typeof source === 'object') {
-                Object.keys(source).forEach(key => {
-                    const val = source[key];
-                    const current = combined.get(key) || 0;
-                    combined.set(key, current + val);
-                    count++;
-                });
-            }
-            else {
-                console.warn(`[SyncManager] Merge source #${index} is neither Map nor Object: ${typeof source}`);
-            }
-            totalItems += count;
-        });
-
-        console.log(`[SyncManager] Merged ${totalSources} sources, total ${totalItems} items into ${combined.size} unique assets.`);
-        return combined;
-    },
-
-    /**
-     * [Core] Standard Sheet Writer
+     * [Core] Unified Ledger Updater (Atomic Replace by Exchange)
+     * 
+     * Strategy:
+     * 1. Read ALL data from 'Unified Assets'.
+     * 2. Filter OUT all rows belonging to 'targetExchange'.
+     * 3. APPEND new asset rows from specific exchange.
+     * 4. SORT and WRITE back.
+     * 
      * @param {SpreadsheetApp.Spreadsheet} ss 
-     * @param {string} sheetName - Target Sheet Name
-     * @param {string[]} headers - e.g. ['Currency', 'Amount', 'Last Updated']
-     * @param {Map<string, number>} dataMap - Asset Data
+     * @param {string} targetExchange - e.g. "Binance", "Okx"
+     * @param {Array<Object>} newAssets - List of standardized asset objects
+     * Schema: { ccy, amt, type, status, meta }
      */
-    writeToSheet: function (ss, sheetName, headers, dataMap) {
-        let sheet = ss.getSheetByName(sheetName);
-        if (!sheet) sheet = ss.insertSheet(sheetName);
+    updateUnifiedLedger: function (ss, targetExchange, newAssets) {
+        let sheet = ss.getSheetByName(this.LEDGER_SHEET_NAME);
 
-        // 1. Enforce Headers
-        if (headers && headers.length > 0) {
-            sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-            sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#f3f3f3');
+        // 1. Auto-Create Sheet if missing
+        if (!sheet) {
+            sheet = ss.insertSheet(this.LEDGER_SHEET_NAME);
+            // Init Headers
+            sheet.getRange(1, 1, 1, this.LEDGER_HEADERS.length).setValues([this.LEDGER_HEADERS]);
+            sheet.getRange(1, 1, 1, this.LEDGER_HEADERS.length).setFontWeight('bold').setBackground('#e3f2fd');
+            sheet.setFrozenRows(1);
         }
 
-        // 2. Prepare Data Rows
-        const rows = [];
-        dataMap.forEach((val, key) => {
-            // Filter dust
-            if (val > 0.00000001) {
-                rows.push([key, val]);
-            }
-        });
+        // 2. Read Existing Data
+        const lastRow = sheet.getLastRow();
+        let existingData = [];
+        if (lastRow > 1) {
+            // Read all data (Cols A to G)
+            existingData = sheet.getRange(2, 1, lastRow - 1, this.LEDGER_HEADERS.length).getValues();
+        }
 
-        // 3. Sort (Descending Amount)
-        rows.sort((a, b) => b[1] - a[1]);
+        // 3. Filter OUT old data for this exchange
+        // Col Index 0 is 'Exchange'
+        const otherExchangeData = existingData.filter(row => row[0] !== targetExchange);
 
-        // 4. ISO Timestamp
+        this.log("INFO", `[Ledger] Retained ${otherExchangeData.length} rows from other exchanges. Removing old ${targetExchange} data.`, "SyncManager");
+
+        // 4. Transform New Assets to Row Format
+        // Schema: Exchange | Currency | Amount | Type | Status | Meta | Updated
         const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
 
-        // 5. Clear Old Data (From Row 2)
-        const maxRows = sheet.getMaxRows();
-        const maxCols = sheet.getMaxColumns();
-        if (maxRows > 1) {
-            sheet.getRange(2, 1, maxRows - 1, maxCols).clearContent();
+        const newRows = newAssets.map(asset => {
+            return [
+                targetExchange,           // Exchange
+                asset.ccy,                // Currency
+                asset.amt,                // Amount
+                asset.type || 'Spot',     // Type
+                asset.status || 'Avail',  // Status
+                asset.meta || '',         // Meta
+                timestamp                 // Updated
+            ];
+        });
+
+        // 5. Combine & Sort
+        const finalData = [...otherExchangeData, ...newRows];
+
+        // Sort logic: Exchange (A-Z) -> Type (Spot/Earn/Loan) -> Currency (A-Z)
+        finalData.sort((a, b) => {
+            if (a[0] !== b[0]) return a[0].localeCompare(b[0]); // Exchange
+            if (a[3] !== b[3]) return b[3].localeCompare(a[3]); // Type (Spot vs Loan desc)
+            return a[1].localeCompare(b[1]);                    // Currency
+        });
+
+        // 6. Write Back (Atomic Replace)
+        // Clear whole sheet content first (except header)
+        if (lastRow > 1) {
+            sheet.getRange(2, 1, lastRow - 1, this.LEDGER_HEADERS.length).clearContent();
         }
 
-        // Write New Data
-        if (rows.length > 0) {
-            // Write Asset Data (Col 1, 2)
-            sheet.getRange(2, 1, rows.length, 2).setValues(rows);
-
-            // Write Timestamp (At the end of Row 2)
-            if (headers) {
-                const timeCol = headers.length;
-                sheet.getRange(2, timeCol).setValue(timestamp);
-            }
-
-            this.log("INFO", `Written ${rows.length} assets to ${sheetName}`, "SyncManager");
-            ss.toast(`${sheetName} Update Success (${rows.length} items)`);
+        if (finalData.length > 0) {
+            sheet.getRange(2, 1, finalData.length, this.LEDGER_HEADERS.length).setValues(finalData);
+            this.log("INFO", `[Ledger] Updated. Total Rows: ${finalData.length} (Added ${newRows.length} from ${targetExchange})`, "SyncManager");
         } else {
-            // Empty State
-            if (headers) {
-                const emptyRow = new Array(headers.length).fill("");
-                emptyRow[0] = "No Assets Found (Check Logs)";
-                emptyRow[1] = 0;
-                emptyRow[headers.length - 1] = timestamp;
-
-                sheet.getRange(2, 1, 1, headers.length).setValues([emptyRow]);
-            }
-            this.log("WARNING", `${sheetName} No Assets Found`, "SyncManager");
-            ss.toast(`${sheetName} No Assets`);
+            this.log("WARNING", `[Ledger] Sheet is empty after update.`, "SyncManager");
         }
     },
 
     /**
      * [Core] Unified Logging Interface
-     * Routes logs to both Console (Dev) and System_Logs (User Audit)
      */
     log: function (level, message, context = "SyncManager") {
-        // 1. Console
         console.log(`[${level}] [${context}] ${message}`);
-
-        // 2. System_Logs (if LogService exists)
         if (typeof LogService !== 'undefined' && LogService.log) {
             LogService.log(level, message, context);
         }
