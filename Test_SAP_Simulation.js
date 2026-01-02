@@ -1,6 +1,14 @@
-﻿/**
+﻿```javascript
+/**
  * Test_SAP_Simulation.js
- * Sandbox for testing SAP v24.5 Logic without executing trades.
+ * 
+ * HOW TO RUN:
+ * 1. Open Apps Script editor
+ * 2. Select 'debugSAPLogic' function
+ * 3. Click 'Run' to simulate strategy logic without executing trades.
+ * 
+ * EXPECTED OUTPUT:
+ * Console logs showing scenario context, decision logic, and hypothetical actions.
  * Logs output to GAS Console.
  * 
  * USAGE: Uncomment and run debugSAPLogic() in Apps Script editor

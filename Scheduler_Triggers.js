@@ -40,7 +40,7 @@ function setupScheduledTriggers() {
     .atHour(1)
     .create();
 
-  const msg = "系統升級完成 (SAP v24.5)\n\n" +
+  const msg = `系統升級完成 (${Config.SYSTEM_NAME} ${Config.VERSION})\n\n` +
     "- 戰略監控 (Strategic Monitor): 每 30 分鐘執行一次 (Dashboard 寫回 + 警報)\n" +
     "- 每日結算 (Daily Close): 每天凌晨 01:00 (快照 + 日報)\n\n" +
     "Digital Sovereignty Established.";

@@ -1,4 +1,7 @@
 /**
+ * Util_LegacySupport.js
+ * [Active Legacy] Used by Sync_Assets.js for resolving price formulas.
+ * Do not delete unless Sync_Assets is refactored.
  * SAP 舊版兼容支援: GET_PRICE
  * 為試算表公式提供向後兼容性。
  * 

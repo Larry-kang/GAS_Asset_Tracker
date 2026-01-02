@@ -8,9 +8,8 @@ function getPionexBalance() {
 
   SyncManager.run(MODULE_NAME, () => {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const props = PropertiesService.getScriptProperties();
-    const apiKey = props.getProperty('PIONEX_API_KEY');
-    const apiSecret = props.getProperty('PIONEX_API_SECRET');
+    const creds = Credentials.get('PIONEX');
+    const { apiKey, apiSecret } = creds;
     const baseUrl = 'https://api.pionex.com';
 
     if (!apiKey || !apiSecret) {

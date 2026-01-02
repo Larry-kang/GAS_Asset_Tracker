@@ -194,7 +194,7 @@ function showStrategicReportUI() {
     let alerts = [];
     RULES.forEach(rule => { if (rule.condition(context)) { const action = rule.getAction(context); if (action) alerts.push(action); } });
 
-    let msg = "--- [SAP v24.5 指揮中心報告] ---\n";
+    let msg = `--- [${Config.SYSTEM_NAME.split(' - ')[0]} ${Config.VERSION} 指揮中心報告] ---\n`;
     msg += "狀態: 活躍 | 模式: " + context.phase + "\n";
 
     if (alerts.length > 0) {
