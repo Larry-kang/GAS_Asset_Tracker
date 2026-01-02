@@ -25,14 +25,58 @@ const LogService = {
 
             sheet.appendRow([new Date(), level, context, message]);
 
-            // Keep only last 1000 logs to prevent sheet bloat
-            if (sheet.getLastRow() > 1005) {
-                sheet.deleteRows(2, 100);
+            // Soft Limit: Keep sheet performant (< 2000 rows)
+            // Actual retention is handled by cleanupOldLogs()
+            if (sheet.getLastRow() > 2000) {
+                sheet.deleteRows(2, 500); // Batch delete old rows
             }
 
             Logger.log(`[${level}] ${context}: ${message}`);
         } catch (e) {
             Logger.log("Critical failure in LogService: " + e.toString());
+        }
+    },
+
+    /**
+     * Deletes logs older than N days.
+     * Recommended to run via Daily Trigger.
+     * @param {number} retentionDays - Default 7
+     */
+    cleanupOldLogs: function (retentionDays = 7) {
+        try {
+            const ss = SpreadsheetApp.getActiveSpreadsheet();
+            const sheet = ss.getSheetByName(this.SHEET_NAME);
+            if (!sheet || sheet.getLastRow() <= 1) return;
+
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+
+            // Read Timestamps (Col A)
+            // Assume Row 1 is header. Data starts Row 2.
+            const lastRow = sheet.getLastRow();
+            const timestamps = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+
+            let deleteCount = 0;
+            for (let i = 0; i < timestamps.length; i++) {
+                const rowDate = new Date(timestamps[i][0]);
+                if (rowDate < cutoffDate) {
+                    deleteCount++;
+                } else {
+                    // Logs are chronological (usually). 
+                    // Once we hit a new log, we can stop checking if we assume order.
+                    // But to be safe, if we assume unsorted, we can't break. 
+                    // However, logs ARE chronological.
+                    break;
+                }
+            }
+
+            if (deleteCount > 0) {
+                sheet.deleteRows(2, deleteCount);
+                this.log("INFO", `Cleaned up ${deleteCount} old logs (Retention: ${retentionDays} days).`, "LogService");
+            }
+
+        } catch (e) {
+            console.error("Log Cleanup Failed", e);
         }
     },
 
