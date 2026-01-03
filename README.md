@@ -26,12 +26,14 @@ SAP 是一套建構於 Google Apps Script (GAS) 之上的無伺服器 (Serverles
 *   `Util_Credentials.js`: API 憑證權限管理中心。
 *   `Util_HealthCheck.js`: 系統完整度與連線診斷。
 *   `Util_ImportJSON.js`: 多功能 JSON 數據抓取工具。
+*   `Util_TWSE.js`: 台灣證交所數據整合。
 *   **匯率換算**: 透過 Google Finance 與自建 API，即時計算 TWD/USD 總資產淨值 (NAV)。
 
-### 2. 戰略決策引擎 (Strategic Engine)
-*   **風險監控**: 即時計算多平台質押維持率 (Maintenance Ratio)，低於警戒線 (如 2.1) 自動發送紅燈警報。
-*   **馬丁格爾策略**: 根據 BTC 回調幅度 (-30% ~ -70%)，自動計算建議抄底金額。
-*   **資產再平衡**: 監控三大資產層 (Layer 1 儲備 / Layer 2 信用 / Layer 3 彈藥) 偏移率，提供再平衡建議。
+*   **資產再平衡**: 監控四大資產層：
+    - **Layer 1 (儲備)**: BTC 等核心數位資產。
+    - **Layer 2 (信用)**: 台美股等優質抵押品。
+    - **Layer 3 (彈藥)**: BOXX、CASH_TWD 與統合穩定幣 `CASH_FC`。
+    - **Layer 4 (雜項)**: [v24.7 NEW] 自動追蹤非核心資產 (Dust)，主動提醒清理回歸主戰線。
 
 ### 3. devOps 與自動化
 *   **CI/CD Pipeline**: 整合 GitHub Actions，實現 `git push` 即自動部署至 GAS。

@@ -41,7 +41,7 @@ const CONFIG = {
   ASSET_GROUPS: [
     { id: "L1", name: "Layer 1: Digital Reserve (Attack)", defaultTarget: 0.60, tickers: ["IBIT", "BTC_Spot", "BTC"] },
     { id: "L2", name: "Layer 2: Credit Base (Defend)", defaultTarget: 0.30, tickers: ["00713", "00662", "QQQ"] },
-    { id: "L3", name: "Layer 3: Tactical Liquidity", defaultTarget: 0.10, tickers: ["BOXX", "CASH_TWD", "USDT", "USDC"] }
+    { id: "L3", name: "Layer 3: Tactical Liquidity", defaultTarget: 0.10, tickers: ["BOXX", "CASH_TWD", "CASH_FC"] }
   ],
   NOISE_ASSETS: ["ETH", "BNB", "TQQQ"]
 };
@@ -177,6 +177,22 @@ const RULES = [
         };
       }
       return null;
+    }
+  },
+  {
+    name: "Noise Asset Cleanup Monitor",
+    phase: "All",
+    condition: function (context) {
+      const l4 = context.assetGroups ? context.assetGroups.find(g => g.id === "L4") : null;
+      return l4 && l4.value > 0;
+    },
+    getAction: function (context) {
+      const l4 = context.assetGroups.find(g => g.id === "L4");
+      return {
+        level: "[注意] 雜項資產清理建議",
+        message: "偵測到 Layer 4 雜項資產: " + l4.tickers.join(", ") + " (總值: " + Math.round(l4.value).toLocaleString() + " TWD)",
+        action: "建議找市場高位機會清空雜項資產，回歸 L1 (BTC) 或 L2 (穩定基底)。"
+      };
     }
   }
 ];
@@ -369,15 +385,29 @@ function buildContext() {
 
   market.surplus = liquidity - (monthlyDebt * 3);
 
-  // Phase 4: 動態資產配置目標注入 (v24.6.1)
+  // Phase 4: 動態資產配置目標注入與 Layer 4 自動化 (v24.7)
+  const knownTickers = new Set();
   const assetGroups = CONFIG.ASSET_GROUPS.map(group => {
+    group.tickers.forEach(t => knownTickers.add(t));
     let dynamicTarget = group.defaultTarget;
     const key = "Alloc_" + group.id + "_Target";
-    // 如果工作表中有設定特定目標，則覆蓋預設值
     if (indicatorsRaw[key] !== undefined && !isNaN(indicatorsRaw[key])) {
       dynamicTarget = indicatorsRaw[key];
     }
-    return { ...group, target: dynamicTarget };
+    return { ...group, target: dynamicTarget, value: calculateGroupValue(portfolioSummary, group) };
+  });
+
+  // 識別雜項資產 (Layer 4)
+  const miscTickers = Object.keys(portfolioSummary).filter(t => !knownTickers.has(t) && !CONFIG.NOISE_ASSETS.includes(t) && portfolioSummary[t] > 0);
+  const miscValue = miscTickers.reduce((sum, t) => sum + portfolioSummary[t], 0);
+
+  assetGroups.push({
+    id: "L4",
+    name: "Layer 4: Miscellaneous (To Clear)",
+    target: 0,
+    tickers: miscTickers,
+    value: miscValue,
+    isMisc: true
   });
 
   // Phase 5: 自動質押引擎
@@ -392,8 +422,8 @@ function buildContext() {
     isValid: pledgeGroups.length > 0,
     maintenanceRatio: (pledgeGroups.find(g => g.name === "Pledge") || pledgeGroups[0] || { ratio: 0 }).ratio,
     binanceMaintenanceRatio: (pledgeGroups.find(g => g.name === "Binance") || { ratio: 0 }).ratio,
-    l1SpotRatio: totalGrossAssets > 0 ? (calculateGroupValue(portfolioSummary, assetGroups[0]) / totalGrossAssets) : 0,
-    totalBtcRatio: totalGrossAssets > 0 ? (calculateGroupValue(portfolioSummary, assetGroups[0]) / totalGrossAssets) : 0,
+    l1SpotRatio: totalGrossAssets > 0 ? (assetGroups[0].value / totalGrossAssets) : 0,
+    totalBtcRatio: totalGrossAssets > 0 ? (assetGroups[0].value / totalGrossAssets) : 0,
     survivalRunway: survivalRunway,
     ltv: totalGrossAssets > 0 ? (totalGrossAssets - netEntityValue) / totalGrossAssets : 0
   };
@@ -404,7 +434,7 @@ function buildContext() {
     pledgeGroups,
     indicators,
     market,
-    assetGroups, // 注入動態生成的組態
+    assetGroups, // 注入動態生成的組態 (含 L4)
     phase: "Bitcoin Standard " + Config.VERSION,
     totalGrossAssets: totalGrossAssets,
     netEntityValue: netEntityValue,
@@ -533,12 +563,24 @@ function generatePortfolioSnapshot(context) {
   s += "\n[III] 資產配置 (ASSET ALLOCATION)\n";
   const groupsToDisplay = context.assetGroups || CONFIG.ASSET_GROUPS;
   groupsToDisplay.forEach(group => {
-    let groupValue = 0;
-    group.tickers.forEach(t => groupValue += (portfolioSummary[t] || 0));
+    let groupValue = group.value || 0;
+    if (group.value === undefined) {
+      group.tickers.forEach(t => groupValue += (portfolioSummary[t] || 0));
+    }
 
     const pct = totalGrossAssets > 0 ? (groupValue / totalGrossAssets * 100) : 0;
     const targetPct = (group.target || group.defaultTarget || 0) * 100;
-    s += "- " + group.name.split(":")[0] + ": " + Math.round(groupValue).toLocaleString() + " (" + pct.toFixed(1) + "% / 目標 " + targetPct.toFixed(0) + "%)\n";
+
+    let line = "- " + group.name.split(":")[0] + ": " + Math.round(groupValue).toLocaleString() + " (" + pct.toFixed(1) + "%";
+    if (!group.isMisc) {
+      line += " / 目標 " + targetPct.toFixed(0) + "%)\n";
+    } else {
+      line += ")\n";
+      if (groupValue > 0) {
+        line += "  > ⚠️ 待清理: " + group.tickers.join(", ") + "\n";
+      }
+    }
+    s += line;
   });
 
   s += "----------------------------------------\n";

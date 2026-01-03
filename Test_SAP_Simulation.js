@@ -119,9 +119,10 @@ function buildMockContext(overrides) {
     netEntityValue: 2000000,
     totalGrossAssets: 3000000, // Mock Total
     assetGroups: [
-      { id: "L1", target: 0.60, name: "Layer 1" },
-      { id: "L2", target: 0.30, name: "Layer 2" },
-      { id: "L3", target: 0.10, name: "Layer 3" }
+      { id: "L1", target: 0.60, name: "Layer 1: Digital Reserve", value: 1800000 },
+      { id: "L2", target: 0.30, name: "Layer 2: Credit Base", value: 900000 },
+      { id: "L3", target: 0.10, name: "Layer 3: Tactical Liquidity", value: 300000 },
+      { id: "L4", target: 0, name: "Layer 4: Miscellaneous", value: 50000, tickers: ["DOGE", "SHIB"], isMisc: true }
     ]
   };
 }
