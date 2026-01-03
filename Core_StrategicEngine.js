@@ -318,34 +318,58 @@ function setup() {
       LogService.info('Email configured: ' + email, 'Setup');
     }
   }
+}
+  }
 
-  // Step 2: Configure Emergency Reserve Threshold
-  const reserveRes = ui.prompt(
-    "設定緊急預備金門檻 (TREASURY_RESERVE_TWD)",
-    "請輸入金額（TWD，預設 100000）:\n\n" +
-    "此門檻用於判斷流動性健康度。",
+// Step 1.5: Configure Discord Webhook (Optional)
+const discordRes = ui.alert(
+  "設定 Discord 通知",
+  "是否啟用 Discord 即時警報？\n(推薦啟用，可即時接收策略訊號)",
+  ui.ButtonSet.YES_NO
+);
+
+if (discordRes == ui.Button.YES) {
+  const webhookRes = ui.prompt(
+    "設定 Discord Webhook",
+    "請貼上 Webhook URL:\n(若不知如何獲取，請詢問 CTO)",
     ui.ButtonSet.OK_CANCEL
   );
-
-  if (reserveRes.getSelectedButton() == ui.Button.OK) {
-    const amount = parseFloat(reserveRes.getResponseText());
-    if (!isNaN(amount) && amount > 0) {
-      Settings.set('TREASURY_RESERVE_TWD', amount.toString());
-      LogService.info('Treasury Reserve set to: ' + amount, 'Setup');
+  if (webhookRes.getSelectedButton() == ui.Button.OK) {
+    const url = webhookRes.getResponseText().trim();
+    if (url) {
+      Settings.set('DISCORD_WEBHOOK_URL', url);
+      LogService.info('Discord Webhook configured', 'Setup');
     }
   }
+}
 
-  // Step 3: Initialize High-Frequency Monitoring
-  // Delegate to setupScheduledTriggers for standardized trigger configuration
-  if (typeof setupScheduledTriggers === 'function') {
-    setupScheduledTriggers();
-  } else {
-    ui.alert(
-      '❌ 錯誤',
-      '找不到 setupScheduledTriggers 函數。\n請確認 Scheduler_Triggers.js 已正確載入。',
-      ui.ButtonSet.OK
-    );
+// Step 2: Configure Emergency Reserve Threshold
+const reserveRes = ui.prompt(
+  "設定緊急預備金門檻 (TREASURY_RESERVE_TWD)",
+  "請輸入金額（TWD，預設 100000）:\n\n" +
+  "此門檻用於判斷流動性健康度。",
+  ui.ButtonSet.OK_CANCEL
+);
+
+if (reserveRes.getSelectedButton() == ui.Button.OK) {
+  const amount = parseFloat(reserveRes.getResponseText());
+  if (!isNaN(amount) && amount > 0) {
+    Settings.set('TREASURY_RESERVE_TWD', amount.toString());
+    LogService.info('Treasury Reserve set to: ' + amount, 'Setup');
   }
+}
+
+// Step 3: Initialize High-Frequency Monitoring
+// Delegate to setupScheduledTriggers for standardized trigger configuration
+if (typeof setupScheduledTriggers === 'function') {
+  setupScheduledTriggers();
+} else {
+  ui.alert(
+    '❌ 錯誤',
+    '找不到 setupScheduledTriggers 函數。\n請確認 Scheduler_Triggers.js 已正確載入。',
+    ui.ButtonSet.OK
+  );
+}
 }
 
 function buildContext() {

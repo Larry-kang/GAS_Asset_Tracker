@@ -10,7 +10,10 @@ function onOpen() {
   // --- [Command] 戰略指令 ---
   menu.addItem('執行即時戰略報告', 'showStrategicReportUI')
     .addItem('一鍵全系統同步', 'runAutomationMaster')
-    .addSeparator();
+    .addSeparator() // 分隔線
+    .addItem('設定 Discord Webhook', 'uiSetupDiscord');
+
+  menu.addSeparator();
 
   // --- [Control] 系統維運管理 ---
   const sysMenu = ui.createMenu('系統維運管理')
@@ -101,4 +104,28 @@ function setup_cicd() {
     "該腳本將自動讀取您的 .clasprc.json 憑證並加密上傳至 GitHub Secrets，" +
     "完成後即可啟用 GitHub Actions 自動部署功能。";
   ui.alert("GitHub CI/CD 設定指引", msg, ui.ButtonSet.OK);
+}
+
+/**
+ * UI to setup Discord Webhook URL
+ * @public
+ */
+function uiSetupDiscord() {
+  const ui = SpreadsheetApp.getUi();
+  const result = ui.prompt(
+    '設定 Discord Webhook',
+    '請貼上您的 Webhook URL (留空則停用)：',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (result.getSelectedButton() == ui.Button.OK) {
+    const url = result.getResponseText().trim();
+    if (url) {
+      Settings.set('DISCORD_WEBHOOK_URL', url);
+      ui.alert('✅ 設定成功！', 'Discord 通知已啟用。\n系統將優先使用 Discord 發送警報。', ui.ButtonSet.OK);
+    } else {
+      Settings.set('DISCORD_WEBHOOK_URL', '');
+      ui.alert('⚠️ 已停用', 'Discord Webhook 已清除。\n系統將降級回復為 Email 通知模式。', ui.ButtonSet.OK);
+    }
+  }
 }
