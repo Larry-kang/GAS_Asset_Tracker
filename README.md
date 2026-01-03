@@ -38,6 +38,14 @@ SAP 是一套建構於 Google Apps Script (GAS) 之上的無伺服器 (Serverles
     - **Layer 3 (彈藥)**: BOXX、CASH_TWD 與統合穩定幣 `CASH_FC`。
     - **Layer 4 (雜項)**: [v24.7 NEW] 自動追蹤非核心資產 (Dust)，主動提醒清理回歸主戰線。
 
+### 2.5 即時戰略通訊 (Live Command Center) [P3-1 NEW]
+*   **Discord 整合**: 取代傳統 Email 通知，提供即時、視覺化的 Rich Embed 戰略報告。
+*   **Hybrid Alert System**: 
+    - **High Priority**: 透過 Discord Webhook 推送 (紅燈警報、再平衡建議)。
+    - **Critical Fallback**: 若 Webhook 失敗，自動降級發送 Email 通知管理員。
+    - **Visual Snapshot**: 報告內嵌 YAML 格式的資產快照，手機閱讀更友善。
+*   **雙向同步**: 自動排程報告與手動觸發 (UI) 皆支援同步發送。
+
 ### 3. devOps 與自動化
 *   **CI/CD Pipeline**: 整合 GitHub Actions，實現 `git push` 即自動部署至 GAS。
 *   **健康檢查**: 內建 `Util_HealthCheck` 模組，每日巡檢 API 連線與憑證狀態。
