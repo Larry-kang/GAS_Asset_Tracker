@@ -202,6 +202,12 @@ const RULES = [
  * Shows portfolio snapshot, risk indicators, and action recommendations.
  * @public
  */
+/**
+ * Displays strategic report UI with current market status and alerts.
+ * Shows portfolio snapshot, risk indicators, and action recommendations.
+ * Offers option to broadcast report to Discord/Email.
+ * @public
+ */
 function showStrategicReportUI() {
   const ui = SpreadsheetApp.getUi();
   try {
@@ -220,12 +226,25 @@ function showStrategicReportUI() {
 
     msg += generatePortfolioSnapshot(context);
     msg += "\n保持戰略。保持理性。";
-    ui.alert("SAP 指揮中心", msg, ui.ButtonSet.OK);
+
+    // [User Request P3-2] Manual Trigger Sync
+    const result = ui.alert("SAP 指揮中心", msg + "\n\n是否同步發送此報告？ (Discord/Email)", ui.ButtonSet.YES_NO);
+    if (result == ui.Button.YES) {
+      broadcastReport_(context, alerts);
+      ui.alert("✅ 報告已發送。");
+    }
+
   } catch (e) { ui.alert("錯誤: " + e.toString()); }
 }
 
 /**
  * Executes daily investment check and sends email report.
+ * Analyzes market conditions, triggers alerts, and updates dashboard.
+ * Called by daily trigger at scheduled time.
+ * @public
+ */
+/**
+ * Executes daily investment check and broadcasts report.
  * Analyzes market conditions, triggers alerts, and updates dashboard.
  * Called by daily trigger at scheduled time.
  * @public
@@ -238,8 +257,9 @@ function runDailyInvestmentCheck() {
 
     updateDashboard(context);
 
-    if (alerts.length > 0) { sendEmailAlert(alerts, context); }
-    else { sendAllClearEmail(context); }
+    // [User Request P3-2] Auto Sync
+    broadcastReport_(context, alerts);
+
   } catch (e) {
     const email = Settings.get('ADMIN_EMAIL');
     if (email) MailApp.sendEmail(email, "[錯誤] SAP 執行失敗", e.toString());
@@ -610,15 +630,46 @@ function generatePortfolioSnapshot(context) {
   return s;
 }
 
-function sendEmailAlert(alerts, context) {
-  let sub = "[SAP 戰略顧問] 需要採取行動";
-  let body = "戰略夥伴，\n分析顯示需要進行再平衡：\n\n";
-  alerts.forEach(a => { body += "**" + a.level + "**\n" + a.message + "\n指令: " + a.action + "\n\n"; });
-  body += generatePortfolioSnapshot(context);
-  MailApp.sendEmail(CONFIG.EMAIL_RECIPIENT, sub, body);
-}
+/**
+ * Unified Broadcast Handler (Email + Discord)
+ * @private
+ */
+function broadcastReport_(context, alerts = []) {
+  const hasAlerts = alerts.length > 0;
+  const snapshot = generatePortfolioSnapshot(context);
 
-function sendAllClearEmail(context) {
-  MailApp.sendEmail(CONFIG.EMAIL_RECIPIENT, "[SAP 每日狀態] 一切正常", generatePortfolioSnapshot(context));
+  // 1. Email Channel
+  const emailRecipient = CONFIG.EMAIL_RECIPIENT;
+  if (emailRecipient) {
+    let subject = hasAlerts ? "[SAP 戰略顧問] 需要採取行動" : "[SAP 每日狀態] 一切正常";
+    let body = hasAlerts ? "戰略夥伴，\n分析顯示需要進行再平衡：\n\n" : "戰略夥伴，\n目前系統運作正常。\n\n";
+
+    if (hasAlerts) {
+      alerts.forEach(a => { body += "**" + a.level + "**\n" + a.message + "\n指令: " + a.action + "\n\n"; });
+    }
+    body += snapshot;
+
+    MailApp.sendEmail(emailRecipient, subject, body);
+    console.log(`[Broadcast] Email sent to ${emailRecipient}`);
+  }
+
+  // 2. Discord Channel (Sync)
+  if (typeof Discord !== 'undefined') {
+    const title = hasAlerts ? "🚨 SAP 戰略行動報告" : "✅ SAP 每日狀態報告";
+    const color = hasAlerts ? "WARNING" : "SUCCESS";
+
+    // Format description for Embed
+    let description = "";
+    if (hasAlerts) {
+      description += "**需要採取行動**\n";
+      alerts.forEach(a => { description += `> **${a.level}**\n> ${a.message}\n> *${a.action}*\n\n`; });
+      description += "\n";
+    }
+
+    // Add Snapshot in Code Block for monospace alignment
+    description += "```yaml\n" + snapshot.replace(/`/g, '') + "\n```";
+
+    Discord.sendAlert(title, description, color);
+  }
 }
 
