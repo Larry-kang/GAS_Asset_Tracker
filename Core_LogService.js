@@ -86,7 +86,7 @@ const LogService = {
         this.log("WARNING", msg, ctx);
         // [Discord] Send Warning
         if (typeof Discord !== 'undefined') {
-            Discord.sendAlert("?? Warning: " + ctx, msg, "WARNING");
+            Discord.sendAlert("Warning: " + ctx, msg, "WARNING");
         }
     },
 
@@ -94,7 +94,7 @@ const LogService = {
         this.log("ERROR", msg, ctx);
         // [Discord] Send Error (Critical)
         if (typeof Discord !== 'undefined') {
-            Discord.sendAlert("? Error: " + ctx, msg, "ERROR");
+            Discord.sendAlert("Error: " + ctx, msg, "ERROR");
         }
     },
 
@@ -102,7 +102,7 @@ const LogService = {
         this.log("STRATEGIC", msg, ctx);
         // [Discord] Send Strategic Signal (High Priority)
         if (typeof Discord !== 'undefined') {
-            Discord.sendAlert("? Strategic Signal: " + ctx, msg, "STRATEGIC");
+            Discord.sendAlert("Strategic Signal: " + ctx, msg, "STRATEGIC");
         }
     }
 };
