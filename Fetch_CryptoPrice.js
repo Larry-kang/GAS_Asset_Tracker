@@ -76,7 +76,15 @@ function updateAllPrices() {
  * 數位幣價格調度中心
  * 依次嘗試多個數據來源，直到成功獲取價格為止。
  */
-function fetchCryptoPrice(ticker, currency = 'USD') {
+function fetchCryptoPrice(ticker, currency = 'USD', bypassCache = false) {
+  const cacheKey = `PRICE_CRYPTO_${ticker.toUpperCase()}_${currency.toUpperCase()}`;
+
+  // 1. Check Cache (unless bypass is requested)
+  if (!bypassCache) {
+    const cached = ScriptCache.get(cacheKey);
+    if (cached) return cached;
+  }
+
   let price = null;
 
   // --- 策略1：嘗試從 cryptoprices.cc (快速、免費) ---
@@ -101,6 +109,8 @@ function fetchCryptoPrice(ticker, currency = 'USD') {
 
   if (price !== null) {
     Logger.log(`  - [Source 2: CoinMarketCap] OK for ${ticker}: ${price}`);
+    // Store in cache for 15 minutes
+    ScriptCache.put(cacheKey, price, 900);
     return price;
   }
 
@@ -149,7 +159,14 @@ function getCryptoPrice(symbol, convert) {
  * 股票價格調度中心
  * 依次嘗試 GOOGLEFINANCE 和網頁爬蟲。
  */
-function fetchStockPrice(ticker) {
+function fetchStockPrice(ticker, bypassCache = false) {
+  const cacheKey = `PRICE_STOCK_${ticker.toUpperCase()}`;
+
+  if (!bypassCache) {
+    const cached = ScriptCache.get(cacheKey);
+    if (cached) return cached;
+  }
+
   let price = null;
 
   // --- 策略1：嘗試 GOOGLEFINANCE (最穩定) ---
@@ -186,6 +203,11 @@ function fetchStockPrice(ticker) {
   }
 
   // --- 策略3：未來可在此增加 Yahoo Finance 等其他爬蟲來源 ---
+
+  if (price !== null) {
+    ScriptCache.put(cacheKey, price, 3600); // Stock prices can cache longer (1hr)
+    return price;
+  }
 
   return null; // 所有方法都失敗
 }

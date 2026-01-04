@@ -22,7 +22,14 @@ const Settings = {
     get: function (key, defaultValue = null) {
         // Build cache on first call within this execution
         if (this._cache === null) {
-            this._cache = PropertiesService.getScriptProperties().getProperties();
+            // Priority 1: L1/L2 via ScriptCache
+            this._cache = ScriptCache.get('GLOBAL_PROPERTIES_SET');
+
+            // Priority 2: Origin (PropertiesService)
+            if (!this._cache) {
+                this._cache = PropertiesService.getScriptProperties().getProperties();
+                ScriptCache.put('GLOBAL_PROPERTIES_SET', this._cache, 1800); // 30 min cache
+            }
         }
 
         const value = this._cache[key];

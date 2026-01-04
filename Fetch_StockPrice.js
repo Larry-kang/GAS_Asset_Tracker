@@ -1,9 +1,17 @@
-function getStockPrice(stockSymbol) {
+function getStockPrice(stockSymbol, bypassCache = false) {
+  const cacheKey = `PRICE_STOCK_${stockSymbol.toUpperCase()}`;
+
+  if (!bypassCache) {
+    const cached = ScriptCache.get(cacheKey);
+    if (cached) return cached;
+  }
+
   var price = null;
 
   // 1. 嘗試使用 GOOGLEFINANCE
   price = getPriceFromGoogleFinance(stockSymbol);
   if (price !== null) {
+    ScriptCache.put(cacheKey, price, 3600);
     return price;
   }
 
@@ -11,6 +19,7 @@ function getStockPrice(stockSymbol) {
   if (stockSymbol.match(/^\d+$/)) { // 檢查是否為台灣股票代號
     price = getPriceFromCnyes(stockSymbol);
     if (price !== null) {
+      ScriptCache.put(cacheKey, price, 3600);
       return price;
     }
   }
@@ -18,6 +27,7 @@ function getStockPrice(stockSymbol) {
   // 3. 嘗試從 Yahoo 股市抓取數據
   price = getPriceFromYahoo(stockSymbol);
   if (price !== null) {
+    ScriptCache.put(cacheKey, price, 3600);
     return price;
   }
 
