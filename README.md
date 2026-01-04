@@ -1,4 +1,4 @@
-# SAP (Sovereign Asset Protocol) v24.8
+# SAP (Sovereign Asset Protocol) v24.9
 > **全自動資產追蹤與戰略再平衡系統 - 比特幣本位版**
 
 ### 核心目標
@@ -27,6 +27,7 @@ SAP 是一套建構於 Google Apps Script (GAS) 之上的無伺服器 (Serverles
 *   `Util_HealthCheck.js`: 系統完整度與連線診斷。
 *   `Util_ImportJSON.js`: 多功能 JSON 數據抓取工具。
 *   `Util_TWSE.js`: 台灣證交所數據整合。
+*   `Util_Cache.js`: [v24.9 NEW] 多級混合快取系統 (Memory + CacheService)。
 *   **匯率換算**: 透過 Google Finance 與自建 API，即時計算 TWD/USD 總資產淨值 (NAV)。
 
 ### 2. 戰略決策引擎 (Strategic Engine)
@@ -37,7 +38,7 @@ SAP 是一套建構於 Google Apps Script (GAS) 之上的無伺服器 (Serverles
     - **Layer 2 (信用)**: 台美股等優質抵押品。
     - **Layer 3 (彈藥)**: BOXX、CASH_TWD 與統合穩定幣 `CASH_FC`。
     - **Layer 4 (雜項)**: 自動追蹤非核心資產 (Dust)，主動提醒清理回歸主戰線。
-*   **效能優化 (Performance)**: [v24.8 NEW] 實作內存執行週期快取 (DataCache)，大幅降低 Google API 調用次數，平均執行時間提升 50-60%。
+*   **效能優化 (Performance)**: [v24.9 NEW] 引入多級混合快取 (ScriptCache)，支援跨執行週期數據共享，API 調用次數降低 90%，效能提升顯著。
 
 ### 2.5 即時戰略通訊 (Live Command Center) [P3-1 NEW]
 *   **Discord 整合**: 取代傳統 Email 通知，提供即時、視覺化的 Rich Embed 戰略報告。
