@@ -46,6 +46,22 @@ const CONFIG = {
   NOISE_ASSETS: ["ETH", "BNB", "TQQQ"]
 };
 
+/**
+ * Execution Cache to prevent redundant Sheet/Properties lookups within the same run.
+ */
+const DataCache = {
+  _sheets: {},
+  getValues: function (sheetName) {
+    if (!this._sheets[sheetName]) {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      const sheet = ss.getSheetByName(sheetName);
+      if (!sheet) return null;
+      this._sheets[sheetName] = sheet.getDataRange().getValues();
+    }
+    return this._sheets[sheetName];
+  }
+};
+
 const RULES = [
   {
     name: "ATH Breakout Monitor",
@@ -200,11 +216,6 @@ const RULES = [
 /**
  * Displays strategic report UI with current market status and alerts.
  * Shows portfolio snapshot, risk indicators, and action recommendations.
- * @public
- */
-/**
- * Displays strategic report UI with current market status and alerts.
- * Shows portfolio snapshot, risk indicators, and action recommendations.
  * Offers option to broadcast report to Discord/Email.
  * @public
  */
@@ -237,12 +248,6 @@ function showStrategicReportUI() {
   } catch (e) { ui.alert("錯誤: " + e.toString()); }
 }
 
-/**
- * Executes daily investment check and sends email report.
- * Analyzes market conditions, triggers alerts, and updates dashboard.
- * Called by daily trigger at scheduled time.
- * @public
- */
 /**
  * Executes daily investment check and broadcasts report.
  * Analyzes market conditions, triggers alerts, and updates dashboard.
@@ -391,17 +396,9 @@ function setup() {
 }
 
 function buildContext() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const balanceSheet = ss.getSheetByName(CONFIG.SHEET_NAMES.BALANCE_SHEET);
-  const indicatorSheet = ss.getSheetByName(CONFIG.SHEET_NAMES.INDICATORS);
-
-  if (!balanceSheet || !indicatorSheet) {
-    throw new Error("找不到必要的工作表 (Balance Sheet / " + CONFIG.SHEET_NAMES.INDICATORS + ")。");
-  }
-
   // Phase 1: 穩健數據收集
-  const rawPortfolio = getPortfolioData(balanceSheet);
-  const indicatorsRaw = fetchMarketIndicators(indicatorSheet);
+  const rawPortfolio = getPortfolioData(CONFIG.SHEET_NAMES.BALANCE_SHEET);
+  const indicatorsRaw = fetchMarketIndicators(CONFIG.SHEET_NAMES.INDICATORS);
 
   // Phase 2: 資產/債務分離與聚合
   const portfolioSummary = aggregatePortfolio(rawPortfolio);
@@ -485,8 +482,9 @@ function buildContext() {
   };
 }
 
-function fetchMarketIndicators(sheet) {
-  const data = sheet.getDataRange().getValues();
+function fetchMarketIndicators(sheetName) {
+  const data = DataCache.getValues(sheetName);
+  if (!data) throw new Error("Could not find indicator sheet: " + sheetName);
   const result = {};
 
   const keysOfInterest = [
@@ -563,8 +561,9 @@ function getRebalanceTargets(portfolio, assets, market) {
   return targets;
 }
 
-function getPortfolioData(sheet) {
-  const data = sheet.getDataRange().getValues();
+function getPortfolioData(sheetName) {
+  const data = DataCache.getValues(sheetName);
+  if (!data) throw new Error("Could not find balance sheet: " + sheetName);
   const portfolio = [];
   for (let i = 1; i < data.length; i++) {
     const ticker = data[i][0];
