@@ -11,8 +11,21 @@ const Settings = {
      * @param {*} defaultValue 
      * @returns {*}
      */
+    _cache: null,
+
+    /**
+     * Get a script property by key
+     * @param {string} key 
+     * @param {*} defaultValue 
+     * @returns {*}
+     */
     get: function (key, defaultValue = null) {
-        const value = PropertiesService.getScriptProperties().getProperty(key);
+        // Build cache on first call within this execution
+        if (this._cache === null) {
+            this._cache = PropertiesService.getScriptProperties().getProperties();
+        }
+
+        const value = this._cache[key];
         if (value === null || value === undefined) return defaultValue;
         return value;
     },
