@@ -4,7 +4,7 @@
  */
 const Config = {
     SYSTEM_NAME: "SAP - Sovereign Asset Protocol",
-    VERSION: "v24.6",
+    VERSION: "v24.9",
 
     // Feature Flags
     FEATURES: {
