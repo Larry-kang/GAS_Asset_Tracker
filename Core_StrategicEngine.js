@@ -383,6 +383,8 @@ function buildContext() {
     sapBaseATH: indicatorsRaw.SAP_Base_ATH || 0,
     totalMartingaleSpent: indicatorsRaw.Total_Martingale_Spent || 0,
     maxMartingaleBudget: indicatorsRaw.MAX_MARTINGALE_BUDGET || 437000,
+    // [NEW v24.10]
+    btcMM: indicatorsRaw.BTC_MM || null,
     usdTwdRate: 32.5,
     surplus: 0
   };
@@ -582,12 +584,39 @@ function generatePortfolioSnapshot(context) {
     s += "- 距離 ATH (" + market.sapBaseATH + "): " + drop + "%\n";
   }
 
+  // [NEW v24.10] Mayer Multiple Display
+  if (market.btcMM) {
+    s += "- Mayer Multiple: " + market.btcMM.toFixed(2) + "\n";
+    let phase = "";
+    if (market.btcMM < 0.8) phase = "🟢 極度低估 (累積)";
+    else if (market.btcMM < 1.0) phase = "🟢 強力累積區";
+    else if (market.btcMM < 1.5) phase = "🟡 正常累積區";
+    else if (market.btcMM < 2.0) phase = "🟡 中性區";
+    else phase = "🔴 去槓桿區";
+    s += "- 週期定位: " + phase + "\n";
+  }
+
   s += "\n[II] 生存指標 (SURVIVAL METRICS)\n";
   s += "- 生存跑道: " + indicators.survivalRunway.toFixed(1) + " 個月\n";
   s += "- 淨值: " + Math.round(netEntityValue).toLocaleString() + " TWD\n";
   s += "- 總資產: " + Math.round(totalGrossAssets).toLocaleString() + " TWD\n";
   s += "- 總負債: " + Math.round(totalGrossAssets - netEntityValue).toLocaleString() + " TWD\n";
   s += "- 負債比 (LTV): " + (indicators.ltv * 100).toFixed(1) + "%\n";
+
+  // [NEW v24.10] Target LTV Advice
+  if (market.btcMM) {
+    let targetLTV = 0;
+    if (market.btcMM < 0.8) targetLTV = 40;
+    else if (market.btcMM < 1.0) targetLTV = 30;
+    else if (market.btcMM < 1.5) targetLTV = 25;
+    else if (market.btcMM < 2.0) targetLTV = 20;
+    else targetLTV = 0;
+
+    s += "- 目標 LTV (建議): " + targetLTV + "%\n";
+    if (indicators.ltv * 100 > targetLTV) {
+      s += "  ⚠️ LTV 超標，建議去槓桿\n";
+    }
+  }
 
   if (pledgeGroups.length > 0) {
     pledgeGroups.forEach(group => {
