@@ -445,7 +445,7 @@ function buildContext() {
   });
 
   // Phase 5: 自動質押引擎
-  const pledgeGroups = calculateAutoPledgeRatios(rawPortfolio, {});
+  const pledgeGroups = calculateAutoPledgeRatios(rawPortfolio, indicatorsRaw);
 
   // Phase 5: 再平衡目標
   const portfolioForRebalance = {};
@@ -461,6 +461,23 @@ function buildContext() {
     survivalRunway: survivalRunway,
     ltv: totalGrossAssets > 0 ? (totalGrossAssets - netEntityValue) / totalGrossAssets : 0
   };
+
+  // [NEW v24.10] Separation of LTVs
+  let totalCryptoDebt = 0;
+  pledgeGroups.filter(g => g.name.toLowerCase().includes("binance") || g.name.toLowerCase().includes("okx")).forEach(g => {
+    totalCryptoDebt += g.loanAmount;
+  });
+
+  // Crypto Assets = L1 (BTC) + L4 (Misc/Stables) + Specific Crypto in L3/L2 if any (Simplified: L1 + L4)
+  // Note: This assumes L2 are Stocks and L3 contains mostly fiat/stock-like equivalents (Boxx)
+  const l1Value = assetGroups.find(g => g.id === "L1")?.value || 0;
+  const l4Value = assetGroups.find(g => g.id === "L4")?.value || 0;
+  const totalCryptoAssets = l1Value + l4Value;
+
+  const cryptoLTV = totalCryptoAssets > 0 ? (totalCryptoDebt / totalCryptoAssets) : 0;
+
+  indicators.cryptoLTV = cryptoLTV;
+  indicators.stockPledgeRatio = (pledgeGroups.find(g => g.name.toLowerCase().includes("stock")) || { ratio: 999 }).ratio;
 
   return {
     portfolioSummary,
@@ -493,7 +510,14 @@ function fetchMarketIndicators(sheetName) {
     "BTC_MM",  // [NEW v24.10] Mayer Multiple for dynamic allocation
     "Alloc_L1_Target",
     "Alloc_L2_Target",
-    "Alloc_L3_Target"
+    "Alloc_L3_Target",
+    // [NEW v24.10] Dynamic Pledge Thresholds
+    "Stock_Pledge_Maint_Alert",
+    "Stock_Pledge_Maint_Critical",
+    "Binance_Pledge_Maint_Alert",
+    "Binance_Pledge_Maint_Critical",
+    "OKX_Pledge_Maint_Alert",
+    "OKX_Pledge_Maint_Critical"
   ];
 
   for (let i = 0; i < data.length; i++) {
@@ -520,9 +544,26 @@ function calculateAutoPledgeRatios(rawPortfolio, indicatorsRaw) {
     const data = labelMap[name];
     if (data.debt > 0) {
       const ratio = data.assets / data.debt;
-      const isCrypto = name.toLowerCase().includes("binance") || name.toLowerCase().includes("okx");
-      const alertThreshold = isCrypto ? Config.STRATEGIC.CRYPTO_LOAN_RATIO_ALERT : Config.STRATEGIC.PLEDGE_RATIO_ALERT;
-      const criticalThreshold = isCrypto ? Config.STRATEGIC.CRYPTO_LOAN_RATIO_CRITICAL : Config.STRATEGIC.PLEDGE_RATIO_CRITICAL;
+      const lowerName = name.toLowerCase();
+      let alertThreshold, criticalThreshold;
+
+      // Dynamic Threshold Assignment
+      if (lowerName.includes("stock")) {
+        alertThreshold = indicatorsRaw.Stock_Pledge_Maint_Alert || Config.STRATEGIC.PLEDGE_RATIO_ALERT;
+        criticalThreshold = indicatorsRaw.Stock_Pledge_Maint_Critical || Config.STRATEGIC.PLEDGE_RATIO_CRITICAL;
+      } else if (lowerName.includes("binance")) {
+        alertThreshold = indicatorsRaw.Binance_Pledge_Maint_Alert || Config.STRATEGIC.CRYPTO_LOAN_RATIO_ALERT;
+        criticalThreshold = indicatorsRaw.Binance_Pledge_Maint_Critical || Config.STRATEGIC.CRYPTO_LOAN_RATIO_CRITICAL;
+      } else if (lowerName.includes("okx")) {
+        alertThreshold = indicatorsRaw.OKX_Pledge_Maint_Alert || Config.STRATEGIC.CRYPTO_LOAN_RATIO_ALERT;
+        criticalThreshold = indicatorsRaw.OKX_Pledge_Maint_Critical || Config.STRATEGIC.CRYPTO_LOAN_RATIO_CRITICAL;
+      } else {
+        // Default Logic
+        const isCrypto = lowerName.includes("binance") || lowerName.includes("okx");
+        alertThreshold = isCrypto ? Config.STRATEGIC.CRYPTO_LOAN_RATIO_ALERT : Config.STRATEGIC.PLEDGE_RATIO_ALERT;
+        criticalThreshold = isCrypto ? Config.STRATEGIC.CRYPTO_LOAN_RATIO_CRITICAL : Config.STRATEGIC.PLEDGE_RATIO_CRITICAL;
+      }
+
       groups.push({
         name: name,
         ratio: ratio,
@@ -601,9 +642,9 @@ function generatePortfolioSnapshot(context) {
   s += "- 淨值: " + Math.round(netEntityValue).toLocaleString() + " TWD\n";
   s += "- 總資產: " + Math.round(totalGrossAssets).toLocaleString() + " TWD\n";
   s += "- 總負債: " + Math.round(totalGrossAssets - netEntityValue).toLocaleString() + " TWD\n";
-  s += "- 負債比 (LTV): " + (indicators.ltv * 100).toFixed(1) + "%\n";
+  s += "- 總 LTV: " + (indicators.ltv * 100).toFixed(1) + "%\n";
 
-  // [NEW v24.10] Target LTV Advice
+  // [NEW v24.10] Target LTV Advice (Crypto Only)
   if (market.btcMM) {
     let targetLTV = 0;
     if (market.btcMM < 0.8) targetLTV = 40;
@@ -612,15 +653,27 @@ function generatePortfolioSnapshot(context) {
     else if (market.btcMM < 2.0) targetLTV = 20;
     else targetLTV = 0;
 
-    s += "- 目標 LTV (建議): " + targetLTV + "%\n";
-    if (indicators.ltv * 100 > targetLTV) {
-      s += "  ⚠️ LTV 超標，建議去槓桿\n";
+    s += "- 目標 LTV (Crypto) (建議): " + targetLTV + "%\n";
+    if (indicators.cryptoLTV * 100 > targetLTV) {
+      s += "  ⚠️ Crypto LTV (" + (indicators.cryptoLTV * 100).toFixed(1) + "%) 超標，建議去槓桿\n";
+    } else {
+      s += "  ✅ Crypto LTV (" + (indicators.cryptoLTV * 100).toFixed(1) + "%) 位於安全區\n";
     }
   }
 
   if (pledgeGroups.length > 0) {
+    s += "\n[質押健康度]\n";
     pledgeGroups.forEach(group => {
-      s += "- 維持率 (" + group.name + "): " + group.ratio.toFixed(2) + "\n";
+      let status = "✅";
+      if (group.ratio < group.critical) status = "🛑 危險";
+      else if (group.ratio < group.alert) status = "⚠️ 警戒";
+
+      let limitInfo = "";
+      if (group.name.includes("Stock")) {
+        limitInfo = " (安全線 > " + group.critical + ")";
+      }
+
+      s += "- " + group.name + ": " + group.ratio.toFixed(2) + limitInfo + " " + status + "\n";
     });
   }
 
@@ -694,4 +747,3 @@ function broadcastReport_(context, alerts = []) {
     Discord.sendAlert(title, description, color);
   }
 }
-
