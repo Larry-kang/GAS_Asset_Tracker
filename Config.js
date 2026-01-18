@@ -48,10 +48,11 @@ const Config = {
         ]
     },
 
-    // Asset Layers
+    // Asset Layers (2026-01-18 Calibration: MM=0.91 Accumulation Zone)
+    // Reference: Multi_Target_Analysis_20260117.md
     ASSET_GROUPS: [
-        { id: "L1", name: "Layer 1: Digital Reserve (Attack)", defaultTarget: 0.60, tickers: ["IBIT", "BTC_Spot", "BTC"] },
-        { id: "L2", name: "Layer 2: Credit Base (Defend)", defaultTarget: 0.30, tickers: ["00713", "00662", "QQQ"] },
+        { id: "L1", name: "Layer 1: Digital Reserve (Attack)", defaultTarget: 0.70, tickers: ["IBIT", "BTC_Spot", "BTC"] },
+        { id: "L2", name: "Layer 2: Credit Base (Defend)", defaultTarget: 0.20, tickers: ["00713", "00662", "QQQ"] },
         { id: "L3", name: "Layer 3: Tactical Liquidity", defaultTarget: 0.10, tickers: ["BOXX", "CASH_TWD", "CASH_FC"] }
     ],
 
