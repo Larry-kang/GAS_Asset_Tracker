@@ -673,7 +673,8 @@ function generatePortfolioSnapshot(context) {
         limitInfo = " (安全線 > " + group.critical + ")";
       }
 
-      s += "- " + group.name + ": " + group.ratio.toFixed(2) + limitInfo + " " + status + "\n";
+      const groupLTV = (1 / group.ratio * 100).toFixed(1);
+      s += "- " + group.name + ": " + group.ratio.toFixed(2) + " (LTV " + groupLTV + "%)" + limitInfo + " " + status + "\n";
     });
   }
 
