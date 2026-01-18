@@ -3,25 +3,17 @@
  * Strategic Decision Engine & Portfolio Management
  */
 
-const CONFIG = {
-  SHEET_NAMES: Config.SHEET_NAMES,
-  get EMAIL_RECIPIENT() {
-    const email = Settings.get('ADMIN_EMAIL');
-    if (!email) {
-      LogService.warn("ScriptProperty 'ADMIN_EMAIL' not set.", "Config:Email");
-    }
-    return email || "";
-  },
-  THRESHOLDS: {
-    ...Config.STRATEGIC,
-    get TREASURY_RESERVE_TWD() {
-      return Settings.getNumber('TREASURY_RESERVE_TWD', 100000);
-    }
-  },
-  BTC_MARTINGALE: Config.BTC_MARTINGALE,
-  ASSET_GROUPS: Config.ASSET_GROUPS,
-  NOISE_ASSETS: Config.NOISE_ASSETS
-};
+/**
+ * Helper function to get admin email with validation
+ * @private
+ */
+function getAdminEmail_() {
+  const email = Settings.get('ADMIN_EMAIL');
+  if (!email) {
+    LogService.warn("ScriptProperty 'ADMIN_EMAIL' not set.", "Config:Email");
+  }
+  return email || "";
+}
 
 /**
  * Execution Cache to prevent redundant Sheet/Properties lookups within the same run.
@@ -58,13 +50,13 @@ const RULES = [
     name: "BTC Martingale Sniper",
     phase: "All",
     condition: function (context) {
-      return CONFIG.BTC_MARTINGALE.ENABLED &&
+      return Config.BTC_MARTINGALE.ENABLED &&
         context.market.sapBaseATH > 0 &&
         context.market.totalMartingaleSpent < context.market.maxMartingaleBudget;
     },
     getAction: function (context) {
       const currentDrop = (context.market.btcPrice - context.market.sapBaseATH) / context.market.sapBaseATH;
-      const strategy = CONFIG.BTC_MARTINGALE;
+      const strategy = Config.BTC_MARTINGALE;
 
       let activeLevel = null;
       for (let i = strategy.LEVELS.length - 1; i >= 0; i--) {
@@ -131,16 +123,16 @@ const RULES = [
   {
     name: "Maintenance Ratio Monitor",
     phase: "All",
-    condition: function (context) { return context.indicators.isValid && context.indicators.maintenanceRatio < CONFIG.THRESHOLDS.PLEDGE_RATIO_SAFE; },
+    condition: function (context) { return context.indicators.isValid && context.indicators.maintenanceRatio < Config.STRATEGIC.PLEDGE_RATIO_SAFE; },
     getAction: function (context) {
       const ratio = context.indicators.maintenanceRatio;
-      if (ratio <= CONFIG.THRESHOLDS.PLEDGE_RATIO_CRITICAL) {
+      if (ratio <= Config.STRATEGIC.PLEDGE_RATIO_CRITICAL) {
         return {
           level: "[嚴重] 斷頭追繳警報 (1.8)",
           message: "維持率崩跌至 " + ratio.toFixed(2),
           action: "執行焦土防禦: 強制清算所有雜訊資產 (ETH/BNB/TQQQ) 以償還債務。禁止買入。"
         };
-      } else if (ratio <= CONFIG.THRESHOLDS.PLEDGE_RATIO_ALERT) {
+      } else if (ratio <= Config.STRATEGIC.PLEDGE_RATIO_ALERT) {
         return {
           level: "[警告] 警戒區 (2.1)",
           message: "維持率降至 " + ratio.toFixed(2),
@@ -153,16 +145,16 @@ const RULES = [
   {
     name: "Binance Crypto Loan Monitor",
     phase: "All",
-    condition: function (context) { return context.indicators.binanceMaintenanceRatio > 0 && context.indicators.binanceMaintenanceRatio < CONFIG.THRESHOLDS.CRYPTO_LOAN_RATIO_SAFE; },
+    condition: function (context) { return context.indicators.binanceMaintenanceRatio > 0 && context.indicators.binanceMaintenanceRatio < Config.STRATEGIC.CRYPTO_LOAN_RATIO_SAFE; },
     getAction: function (context) {
       const ratio = context.indicators.binanceMaintenanceRatio;
-      if (ratio <= CONFIG.THRESHOLDS.CRYPTO_LOAN_RATIO_CRITICAL) {
+      if (ratio <= Config.STRATEGIC.CRYPTO_LOAN_RATIO_CRITICAL) {
         return {
           level: "[嚴重] 幣安保證金保護 (1.3)",
           message: "幣安 BTC 質押率崩跌至 " + ratio.toFixed(2),
           action: "立即行動: 補倉 BTC 或償還幣安貸款以避免清算。"
         };
-      } else if (ratio <= CONFIG.THRESHOLDS.CRYPTO_LOAN_RATIO_ALERT) {
+      } else if (ratio <= Config.STRATEGIC.CRYPTO_LOAN_RATIO_ALERT) {
         return {
           level: "[警告] 幣安風險區 (1.5)",
           message: "幣安質押率在 " + ratio.toFixed(2),
@@ -277,7 +269,7 @@ function runStrategicMonitor() {
 
 function updateDashboard(context) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(CONFIG.SHEET_NAMES.DASHBOARD);
+  const sheet = ss.getSheetByName(Config.SHEET_NAMES.DASHBOARD);
   if (!sheet) return;
 
   // Use TextFinder to locate cells dynamically
@@ -374,8 +366,8 @@ function setup() {
 
 function buildContext() {
   // Phase 1: 穩健數據收集
-  const rawPortfolio = getPortfolioData(CONFIG.SHEET_NAMES.BALANCE_SHEET);
-  const indicatorsRaw = fetchMarketIndicators(CONFIG.SHEET_NAMES.INDICATORS);
+  const rawPortfolio = getPortfolioData(Config.SHEET_NAMES.BALANCE_SHEET);
+  const indicatorsRaw = fetchMarketIndicators(Config.SHEET_NAMES.INDICATORS);
 
   // Phase 2: 資產/債務分離與聚合
   const portfolioSummary = aggregatePortfolio(rawPortfolio);
@@ -403,7 +395,7 @@ function buildContext() {
 
   // Phase 4: 動態資產配置目標注入與 Layer 4 自動化 (v24.7)
   const knownTickers = new Set();
-  const assetGroups = CONFIG.ASSET_GROUPS.map(group => {
+  const assetGroups = Config.ASSET_GROUPS.map(group => {
     group.tickers.forEach(t => knownTickers.add(t));
     let dynamicTarget = group.defaultTarget;
     const key = "Alloc_" + group.id + "_Target";
@@ -414,7 +406,7 @@ function buildContext() {
   });
 
   // 識別雜項資產 (Layer 4)
-  const miscTickers = Object.keys(portfolioSummary).filter(t => !knownTickers.has(t) && !CONFIG.NOISE_ASSETS.includes(t) && portfolioSummary[t] > 0);
+  const miscTickers = Object.keys(portfolioSummary).filter(t => !knownTickers.has(t) && !Config.NOISE_ASSETS.includes(t) && portfolioSummary[t] > 0);
   const miscValue = miscTickers.reduce((sum, t) => sum + portfolioSummary[t], 0);
 
   assetGroups.push({
@@ -502,8 +494,8 @@ function calculateAutoPledgeRatios(rawPortfolio, indicatorsRaw) {
     if (data.debt > 0) {
       const ratio = data.assets / data.debt;
       const isCrypto = name.toLowerCase().includes("binance") || name.toLowerCase().includes("okx");
-      const alertThreshold = isCrypto ? CONFIG.THRESHOLDS.CRYPTO_LOAN_RATIO_ALERT : CONFIG.THRESHOLDS.PLEDGE_RATIO_ALERT;
-      const criticalThreshold = isCrypto ? CONFIG.THRESHOLDS.CRYPTO_LOAN_RATIO_CRITICAL : CONFIG.THRESHOLDS.PLEDGE_RATIO_CRITICAL;
+      const alertThreshold = isCrypto ? Config.STRATEGIC.CRYPTO_LOAN_RATIO_ALERT : Config.STRATEGIC.PLEDGE_RATIO_ALERT;
+      const criticalThreshold = isCrypto ? Config.STRATEGIC.CRYPTO_LOAN_RATIO_CRITICAL : Config.STRATEGIC.PLEDGE_RATIO_CRITICAL;
       groups.push({
         name: name,
         ratio: ratio,
@@ -579,7 +571,7 @@ function generatePortfolioSnapshot(context) {
   }
 
   s += "\n[III] 資產配置 (ASSET ALLOCATION)\n";
-  const groupsToDisplay = context.assetGroups || CONFIG.ASSET_GROUPS;
+  const groupsToDisplay = context.assetGroups || Config.ASSET_GROUPS;
   groupsToDisplay.forEach(group => {
     let groupValue = group.value || 0;
     if (group.value === undefined) {
@@ -615,7 +607,7 @@ function broadcastReport_(context, alerts = []) {
   const snapshot = generatePortfolioSnapshot(context);
 
   // 1. Email Channel
-  const emailRecipient = CONFIG.EMAIL_RECIPIENT;
+  const emailRecipient = getAdminEmail_();
   if (emailRecipient) {
     let subject = hasAlerts ? "[SAP 戰略顧問] 需要採取行動" : "[SAP 每日狀態] 一切正常";
     let body = hasAlerts ? "戰略夥伴，\n分析顯示需要進行再平衡：\n\n" : "戰略夥伴，\n目前系統運作正常。\n\n";
