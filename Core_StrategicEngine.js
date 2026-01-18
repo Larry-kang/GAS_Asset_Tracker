@@ -1,6 +1,6 @@
 /**
  * Sovereign Asset Protocol (SAP) - Command Center Edition
- * Version: v24.6 (Bitcoin Standard / Treasury Edition)
+ * Strategic Decision Engine & Portfolio Management
  */
 
 const CONFIG = {

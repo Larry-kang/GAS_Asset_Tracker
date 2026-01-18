@@ -1,6 +1,6 @@
 /**
  * Scheduler_Triggers.js
-  * Handles the creation and management of time - based triggers for SAP v24.6.
+ * Handles the creation and management of time-based triggers for SAP.
  */
 
 /**
