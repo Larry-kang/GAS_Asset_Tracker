@@ -7,3 +7,8 @@ client_secret.json
 
 
 my-ai-swarm/
+
+# Local Bridge Scripts (Private - Not Pushed to Public Repo)
+local-bridge/
+Run.bat
+Start-Binance-Bridge.ps1
