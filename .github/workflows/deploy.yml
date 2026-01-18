@@ -24,16 +24,16 @@ jobs:
         env:
           CLASP_SECRET_BASE64: ${{ secrets.CLASPRC_JSON_BASE64 }}
         run: |
-          # ¨Ï¥ÎÀô¹ÒÅÜ¼Æ¦Ó«Dª½±µ echo ¯µÆ_¡A§ó¦w¥þ¥B¯àÁ×§K Shell ¯S®í¦r¤¸°ÝÃD
+          # ä½¿ç”¨ç’°å¢ƒè®Šæ•¸è€Œéžç›´æŽ¥ echo ç§˜é‘°ï¼Œæ›´å®‰å…¨ä¸”èƒ½é¿å… Shell ç‰¹æ®Šå­—å…ƒå•é¡Œ
           echo "$CLASP_SECRET_BASE64" | base64 --decode > ~/.clasprc.json
           
-          # ÀË¬dÀÉ®×¬O§_¦¨¥\²£¥Í¥B«DªÅ
+          # æª¢æŸ¥æª”æ¡ˆæ˜¯å¦æˆåŠŸç”¢ç”Ÿä¸”éžç©º
           if [ ! -s ~/.clasprc.json ]; then
             echo "Error: ~/.clasprc.json is empty or not created"
             exit 1
           fi
           
-          # ÅçÃÒ JSON »yªk (¤£¿é¥X¤º®e)
+          # é©—è­‰ JSON èªžæ³• (ä¸è¼¸å‡ºå…§å®¹)
           cat ~/.clasprc.json | jq . > /dev/null
           if [ $? -ne 0 ]; then
             echo "Error: ~/.clasprc.json is not a valid JSON"
