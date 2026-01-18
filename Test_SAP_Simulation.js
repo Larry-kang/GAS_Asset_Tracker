@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Test_SAP_Simulation.js
  * 
  * HOW TO RUN:
