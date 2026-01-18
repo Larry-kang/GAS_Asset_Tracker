@@ -55,6 +55,9 @@ const Settings = {
      */
     set: function (key, value) {
         PropertiesService.getScriptProperties().setProperty(key, value.toString());
+        // Invalidate cache to ensure immediate effect
+        this._cache = null;
+        ScriptCache.remove('GLOBAL_PROPERTIES_SET');
     },
 
     /**
