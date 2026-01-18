@@ -393,15 +393,39 @@ function buildContext() {
 
   market.surplus = liquidity - (monthlyDebt * 3);
 
+
   // Phase 4: 動態資產配置目標注入與 Layer 4 自動化 (v24.7)
+  // [NEW v24.10] MM-Driven Auto Allocation
   const knownTickers = new Set();
   const assetGroups = Config.ASSET_GROUPS.map(group => {
     group.tickers.forEach(t => knownTickers.add(t));
     let dynamicTarget = group.defaultTarget;
+
+    // Priority 1: Manual override from Sheet
     const key = "Alloc_" + group.id + "_Target";
     if (indicatorsRaw[key] !== undefined && !isNaN(indicatorsRaw[key])) {
       dynamicTarget = indicatorsRaw[key];
     }
+    // Priority 2: Auto-calculate from BTC_MM (if available and no manual override)
+    else if (indicatorsRaw["BTC_MM"] !== undefined && !isNaN(indicatorsRaw["BTC_MM"])) {
+      const mm = indicatorsRaw["BTC_MM"];
+      // MM-based allocation strategy (aligned with SAR)
+      if (group.id === "L1") {
+        if (mm < 0.8) dynamicTarget = 0.75;       // Extreme accumulation
+        else if (mm < 1.0) dynamicTarget = 0.70;  // Strong accumulation
+        else if (mm < 1.5) dynamicTarget = 0.65;  // Normal accumulation
+        else if (mm < 2.0) dynamicTarget = 0.60;  // Neutral
+        else dynamicTarget = 0.50;                // De-leverage zone
+      } else if (group.id === "L2") {
+        if (mm < 1.5) dynamicTarget = 0.20;       // Minimal defense
+        else if (mm < 2.0) dynamicTarget = 0.30;  // Normal defense
+        else dynamicTarget = 0.30;                // Maintain defense
+      } else if (group.id === "L3") {
+        if (mm < 2.0) dynamicTarget = 0.10;       // Minimal cash
+        else dynamicTarget = 0.20;                // Increase cash buffer
+      }
+    }
+
     return { ...group, target: dynamicTarget, value: calculateGroupValue(portfolioSummary, group) };
   });
 
@@ -464,6 +488,7 @@ function fetchMarketIndicators(sheetName) {
     // "Total_BTC_Ratio", // Deprecated: Calculated in code v24.5
     "MAX_MARTINGALE_BUDGET",
     "MONTHLY_DEBT_COST",
+    "BTC_MM",  // [NEW v24.10] Mayer Multiple for dynamic allocation
     "Alloc_L1_Target",
     "Alloc_L2_Target",
     "Alloc_L3_Target"
