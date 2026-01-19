@@ -33,7 +33,12 @@ const Config = {
         PLEDGE_RATIO_CRITICAL: 1.8,
         CRYPTO_LOAN_RATIO_SAFE: 2.0,
         CRYPTO_LOAN_RATIO_ALERT: 1.5,
-        CRYPTO_LOAN_RATIO_CRITICAL: 1.3
+        CRYPTO_LOAN_RATIO_CRITICAL: 1.3,
+        // [V24.11 NEW] Smart Ticker Mapping for LTV Segmentation
+        DEBT_MAPPING: {
+            "OKX_Loan": "OKX",
+            "Binance_Loan": "Binance"
+        }
     },
 
     // Martingale Strategy

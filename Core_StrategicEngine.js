@@ -488,21 +488,24 @@ function buildContext() {
     ltv: totalGrossAssets > 0 ? (totalGrossAssets - netEntityValue) / totalGrossAssets : 0
   };
 
-  // [NEW v24.10] Separation of LTVs
+  // [NEW v24.11] Refined LTV Logic: Separate Active vs Global
+  let activePledgedCryptoAssets = 0;
   let totalCryptoDebt = 0;
   pledgeGroups.filter(g => g.name.toLowerCase().includes("binance") || g.name.toLowerCase().includes("okx")).forEach(g => {
+    activePledgedCryptoAssets += g.collateralValue;
     totalCryptoDebt += g.loanAmount;
   });
 
-  // Crypto Assets = L1 (BTC) + L4 (Misc/Stables) + Specific Crypto in L3/L2 if any (Simplified: L1 + L4)
-  // Note: This assumes L2 are Stocks and L3 contains mostly fiat/stock-like equivalents (Boxx)
+  const activeCryptoLTV = activePledgedCryptoAssets > 0 ? (totalCryptoDebt / activePledgedCryptoAssets) : 0;
+
+  // Also keep Global Crypto LTV for macro view
   const l1Value = assetGroups.find(g => g.id === "L1")?.value || 0;
   const l4Value = assetGroups.find(g => g.id === "L4")?.value || 0;
   const totalCryptoAssets = l1Value + l4Value;
+  const globalCryptoLTV = totalCryptoAssets > 0 ? (totalCryptoDebt / totalCryptoAssets) : 0;
 
-  const cryptoLTV = totalCryptoAssets > 0 ? (totalCryptoDebt / totalCryptoAssets) : 0;
-
-  indicators.cryptoLTV = cryptoLTV;
+  indicators.cryptoLTV = activeCryptoLTV; // Use Active LTV as default indicator
+  indicators.globalCryptoLTV = globalCryptoLTV;
   indicators.stockPledgeRatio = (pledgeGroups.find(g => g.name.toLowerCase().includes("stock")) || { ratio: 999 }).ratio;
 
   return {
@@ -558,7 +561,14 @@ function fetchMarketIndicators(sheetName) {
 function calculateAutoPledgeRatios(rawPortfolio, indicatorsRaw) {
   const labelMap = {};
   rawPortfolio.forEach(item => {
-    const label = item.purpose ? item.purpose.trim() : "";
+    let label = item.purpose ? item.purpose.trim() : "";
+
+    // [V24.11 NEW] Smart Ticker Mapping: Prioritize specific debt tickers for grouping
+    const debtMapping = Config.STRATEGIC.DEBT_MAPPING || {};
+    if (debtMapping[item.ticker]) {
+      label = debtMapping[item.ticker];
+    }
+
     if (!label || label.toLowerCase() === "none") return;
     if (!labelMap[label]) { labelMap[label] = { assets: 0, debt: 0 }; }
     if (item.value > 0) { labelMap[label].assets += item.value; }
@@ -680,10 +690,13 @@ function generatePortfolioSnapshot(context) {
     else targetLTV = 0;
 
     s += "- 目標 LTV (Crypto) (建議): " + targetLTV + "%\n";
+    s += "- 活性 LTV (Active): " + (indicators.cryptoLTV * 100).toFixed(1) + "%\n";
+    s += "- 總體 LTV (Global): " + (indicators.globalCryptoLTV * 100).toFixed(1) + "%\n";
+
     if (indicators.cryptoLTV * 100 > targetLTV) {
-      s += "  ⚠️ Crypto LTV (" + (indicators.cryptoLTV * 100).toFixed(1) + "%) 超標，建議去槓桿\n";
+      s += "  ⚠️ 活性 LTV 超標，建議於質押節點去槓桿\n";
     } else {
-      s += "  ✅ Crypto LTV (" + (indicators.cryptoLTV * 100).toFixed(1) + "%) 位於安全區\n";
+      s += "  ✅ 質押風險平衡中\n";
     }
   }
 
