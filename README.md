@@ -48,6 +48,31 @@ SAP 是一套建構於 Google Apps Script (GAS) 之上的無伺服器 (Serverles
     - **Visual Snapshot**: 報告內嵌 YAML 格式的資產快照，手機閱讀更友善。
 *   **雙向同步**: 自動排程報告與手動觸發 (UI) 皆支援同步發送。
 
+### 3. 高級監控功能 (V24.11+)
+
+#### ✨ 分段 LTV 監控 (Segmented LTV)
+系統不再僅計算全局資產的 LTV，而是根據 `Balance Sheet` 中的 `Purpose` 欄位進行分段監控：
+- **Binance 節點**: 自動計算幣安質押部位的維持率，並在低於 1.5 時發出警報。
+- **OKX 節點**: 自動監控 OKX 質押壓力。
+- **戰略儲備**: 0 質押资产（如 Cold Wallet）不計入質押 LTV 計算，確保風險評估不被平攤。
+
+#### 📉 精準現金流管理
+- **預設還款**: 調整為 10,574 TWD (反映最新信貸還款金額)。
+- **餘額溢出機制**: 超過 150,000 TWD 的現金將自動觸發「再平衡購買建議」，優先補強標的資產。
+
+---
+
+## 🛠️ 開發與維運 (DevOps)
+
+### 1. 部署流程
+1. 修改代碼。
+2. 執行 `git commit`。
+3. GitHub Actions 會自動啟動 `clasp push` 將代碼部署至 GAS。
+
+### 2. 本地開發工具
+- `start.ps1`: 啟動開發環境檢查。
+- `update.ps1`: 拉取最新代碼並執行衝突檢測。
+
 ### 3. devOps 與自動化
 *   **CI/CD Pipeline**: 整合 GitHub Actions，實現 `git push` 即自動部署至 GAS。
 *   **健康檢查**: 內建 `Util_HealthCheck` 模組，每日巡檢 API 連線與憑證狀態。

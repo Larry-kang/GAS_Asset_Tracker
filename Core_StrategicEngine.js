@@ -150,15 +150,41 @@ const RULES = [
       const ratio = context.indicators.binanceMaintenanceRatio;
       if (ratio <= Config.STRATEGIC.CRYPTO_LOAN_RATIO_CRITICAL) {
         return {
-          level: "[嚴重] 幣安保證金保護 (1.3)",
-          message: "幣安 BTC 質押率崩跌至 " + ratio.toFixed(2),
+          level: "[嚴重] 幣安保證金保護",
+          message: "幣安質押率 (BTC/USDT) 崩跌至 " + ratio.toFixed(2) + " (LTV " + (1 / ratio * 100).toFixed(1) + "%)",
           action: "立即行動: 補倉 BTC 或償還幣安貸款以避免清算。"
         };
       } else if (ratio <= Config.STRATEGIC.CRYPTO_LOAN_RATIO_ALERT) {
         return {
-          level: "[警告] 幣安風險區 (1.5)",
+          level: "[警告] 幣安風險區",
           message: "幣安質押率在 " + ratio.toFixed(2),
-          action: "警告: 檢測到 BTC 高波動。準備抵押品。"
+          action: "警告: 檢測到 BTC 高波動。準備抵押品或啟動減壓操作。"
+        };
+      }
+      return null;
+    }
+  },
+  {
+    name: "OKX Crypto Loan Monitor",
+    phase: "All",
+    condition: function (context) {
+      const okxGroup = context.pledgeGroups.find(g => g.name.toLowerCase().includes("okx"));
+      return okxGroup && okxGroup.ratio < (okxGroup.alert || Config.STRATEGIC.CRYPTO_LOAN_RATIO_SAFE);
+    },
+    getAction: function (context) {
+      const okxGroup = context.pledgeGroups.find(g => g.name.toLowerCase().includes("okx"));
+      const ratio = okxGroup.ratio;
+      if (ratio <= (okxGroup.critical || Config.STRATEGIC.CRYPTO_LOAN_RATIO_CRITICAL)) {
+        return {
+          level: "[嚴重] OKX 保證金保護",
+          message: "OKX 質押率 (BTC/USDT) 崩跌至 " + ratio.toFixed(2) + " (LTV " + (1 / ratio * 100).toFixed(1) + "%)",
+          action: "立即行動: 補倉 BTC 或償還 OKX 貸款。優先動用『戰略儲備』部位。"
+        };
+      } else if (ratio <= (okxGroup.alert || Config.STRATEGIC.CRYPTO_LOAN_RATIO_ALERT)) {
+        return {
+          level: "[警告] OKX 風險區",
+          message: "OKX 質押率降至 " + ratio.toFixed(2),
+          action: "警告: OKX 節點壓力增加。若持續下跌請考慮降低槓桿。"
         };
       }
       return null;
@@ -389,11 +415,11 @@ function buildContext() {
     surplus: 0
   };
 
-  const monthlyDebt = indicatorsRaw.MONTHLY_DEBT_COST || 12967;
+  const monthlyDebt = indicatorsRaw.MONTHLY_DEBT_COST || 10574;
   const liquidity = (portfolioSummary["CASH_TWD"] || 0) + (portfolioSummary["USDT"] || 0) + (portfolioSummary["USDC"] || 0);
   const survivalRunway = monthlyDebt > 0 ? (liquidity / monthlyDebt) : 99;
 
-  market.surplus = liquidity - (monthlyDebt * 3);
+  market.surplus = liquidity - (monthlyDebt * 6); // Keep 6 months buffer for surplus check
 
 
   // Phase 4: 動態資產配置目標注入與 Layer 4 自動化 (v24.7)
