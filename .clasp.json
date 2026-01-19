@@ -1,6 +1,11 @@
 {
   "scriptId": "1iQhYJdLbPAdg-qx_ZcB28PMdcrVXirHrTDFx44rYbEvaz_EJ9HI68IDS",
   "rootDir": "",
+  "ignoredFiles": [
+    "archive/**",
+    "node_modules/**",
+    "setup_cicd.ps1"
+  ],
   "scriptExtensions": [
     ".js",
     ".gs"
