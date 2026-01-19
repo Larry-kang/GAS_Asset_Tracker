@@ -539,20 +539,19 @@ function fetchMarketIndicators(sheetName) {
     "BTC_MM",  // [NEW v24.10] Mayer Multiple for dynamic allocation
     "Alloc_L1_Target",
     "Alloc_L2_Target",
-    "Alloc_L3_Target",
-    // [NEW v24.10] Dynamic Pledge Thresholds
-    "Stock_Pledge_Maint_Alert",
-    "Stock_Pledge_Maint_Critical",
-    "Binance_Pledge_Maint_Alert",
-    "Binance_Pledge_Maint_Critical",
-    "OKX_Pledge_Maint_Alert",
-    "OKX_Pledge_Maint_Critical"
+    "Alloc_L3_Target"
   ];
 
   for (let i = 0; i < data.length; i++) {
     const key = String(data[i][0]).trim();
-    if (keysOfInterest.includes(key) || key.indexOf("SAP_") > -1) {
-      result[key] = parseFloat(data[i][1]);
+    const val = parseFloat(data[i][1]);
+
+    // [V24.11 Refined] Dynamic Key Matching
+    if (keysOfInterest.includes(key) ||
+      key.indexOf("SAP_") > -1 ||
+      key.indexOf("_Maint_Alert") > -1 ||
+      key.indexOf("_Maint_Critical") > -1) {
+      result[key] = val;
     }
   }
   return result;
@@ -581,24 +580,18 @@ function calculateAutoPledgeRatios(rawPortfolio, indicatorsRaw) {
     if (data.debt > 0) {
       const ratio = data.assets / data.debt;
       const lowerName = name.toLowerCase();
-      let alertThreshold, criticalThreshold;
 
-      // Dynamic Threshold Assignment
-      if (lowerName.includes("stock")) {
-        alertThreshold = indicatorsRaw.Stock_Pledge_Maint_Alert || Config.STRATEGIC.PLEDGE_RATIO_ALERT;
-        criticalThreshold = indicatorsRaw.Stock_Pledge_Maint_Critical || Config.STRATEGIC.PLEDGE_RATIO_CRITICAL;
-      } else if (lowerName.includes("binance")) {
-        alertThreshold = indicatorsRaw.Binance_Pledge_Maint_Alert || Config.STRATEGIC.CRYPTO_LOAN_RATIO_ALERT;
-        criticalThreshold = indicatorsRaw.Binance_Pledge_Maint_Critical || Config.STRATEGIC.CRYPTO_LOAN_RATIO_CRITICAL;
-      } else if (lowerName.includes("okx")) {
-        alertThreshold = indicatorsRaw.OKX_Pledge_Maint_Alert || Config.STRATEGIC.CRYPTO_LOAN_RATIO_ALERT;
-        criticalThreshold = indicatorsRaw.OKX_Pledge_Maint_Critical || Config.STRATEGIC.CRYPTO_LOAN_RATIO_CRITICAL;
-      } else {
-        // Default Logic
-        const isCrypto = lowerName.includes("binance") || lowerName.includes("okx");
-        alertThreshold = isCrypto ? Config.STRATEGIC.CRYPTO_LOAN_RATIO_ALERT : Config.STRATEGIC.PLEDGE_RATIO_ALERT;
-        criticalThreshold = isCrypto ? Config.STRATEGIC.CRYPTO_LOAN_RATIO_CRITICAL : Config.STRATEGIC.PLEDGE_RATIO_CRITICAL;
-      }
+      // [V24.11 Refined] Dynamic Threshold Mapping
+      // Matches indicators like: Stock_Pledge_Maint_Alert, Binance_Pledge_Maint_Alert
+      const alertKey = name + "_Pledge_Maint_Alert";
+      const criticalKey = name + "_Pledge_Maint_Critical";
+
+      const isCrypto = lowerName !== "stock";
+      const defaultAlert = isCrypto ? Config.STRATEGIC.CRYPTO_LOAN_RATIO_ALERT : Config.STRATEGIC.PLEDGE_RATIO_ALERT;
+      const defaultCritical = isCrypto ? Config.STRATEGIC.CRYPTO_LOAN_RATIO_CRITICAL : Config.STRATEGIC.PLEDGE_RATIO_CRITICAL;
+
+      const alertThreshold = indicatorsRaw[alertKey] || defaultAlert;
+      const criticalThreshold = indicatorsRaw[criticalKey] || defaultCritical;
 
       groups.push({
         name: name,
