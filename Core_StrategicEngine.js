@@ -563,10 +563,10 @@ function calculateAutoPledgeRatios(rawPortfolio, indicatorsRaw) {
   rawPortfolio.forEach(item => {
     let label = item.purpose ? item.purpose.trim() : "";
 
-    // [V24.11 NEW] Smart Ticker Mapping: Prioritize specific debt tickers for grouping
-    const debtMapping = Config.STRATEGIC.DEBT_MAPPING || {};
-    if (debtMapping[item.ticker]) {
-      label = debtMapping[item.ticker];
+    // [V24.11 Refined] Normalization: Binance_Pledge -> Binance, Stock_Pledge -> Stock
+    // This allows exact matching with indicators and rules.
+    if (label.indexOf("_Pledge") > -1) {
+      label = label.split("_")[0];
     }
 
     if (!label || label.toLowerCase() === "none") return;
