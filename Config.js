@@ -4,7 +4,7 @@
  */
 const Config = {
     SYSTEM_NAME: "SAP - Sovereign Asset Protocol",
-    VERSION: "v24.13", // V5.0 Taiwan Stock Leverage Strategy Integration
+    VERSION: "v24.14", // V5.0 TW Stock Rebalancing & Price Feed
 
     // Feature Flags
     FEATURES: {
