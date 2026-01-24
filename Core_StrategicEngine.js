@@ -248,6 +248,45 @@ const RULES = [
         warning = "\n⚠️ 當前借貸比 (" + (currentLoanRatio * 100).toFixed(0) + "%) 顯著高於目標，建議去槓桿。";
       }
 
+      // [NEW v24.14] Collateral Rebalancing Monitor (00713 vs 00662)
+      // Only runs if we have prices and portfolio data
+      if (context.market.price713 > 0 && context.market.price662 > 0) {
+        const p713 = context.portfolioSummary['00713'] || 0;
+        // Handle 00662 alias (Share name vs Ticker)
+        const p662 = context.portfolioSummary['00662'] || context.portfolioSummary['00662_TW'] || 0;
+        const totalPledged = p713 + p662;
+
+        if (totalPledged > 0) {
+          const ratio713 = p713 / totalPledged;
+          // Target: 67% (2/3) for 00713
+          // Threshold: +/- 5% deviation
+          if (ratio713 < 0.62) {
+            // Deficit in 00713
+            const targetValue713 = totalPledged * 0.67;
+            const deficit = targetValue713 - p713;
+            const sharesNeed = Math.ceil(deficit / context.market.price713);
+
+            warning += "\n⚠️ 質押失衡: 00713 佔比過低 (" + (ratio713 * 100).toFixed(0) + "%).\n";
+            warning += "   建議補强: 00713 (" + sharesNeed.toLocaleString() + " 股)";
+
+            if (sharesNeed >= 1000) warning += " ✅ 滿一張可質押";
+            else warning += " ⏳ 未滿一張 (" + sharesNeed + " < 1000)";
+
+          } else if (ratio713 > 0.72) {
+            // Surplus in 00713 (Deficit in 00662)
+            const targetValue662 = totalPledged * 0.33;
+            const deficit = targetValue662 - p662;
+            const sharesNeed = Math.ceil(deficit / context.market.price662);
+
+            warning += "\n⚠️ 質押失衡: 00662 佔比過低 (" + ((1 - ratio713) * 100).toFixed(0) + "%).\n";
+            warning += "   建議補强: 00662 (" + sharesNeed.toLocaleString() + " 股)";
+
+            if (sharesNeed >= 1000) warning += " ✅ 滿一張可質押";
+            else warning += " ⏳ 未滿一張 (" + sharesNeed + " < 1000)";
+          }
+        }
+      }
+
       return {
         level: level + " (" + zone + ")",
         message: "加權 MM: " + mm.toFixed(2) + " (713: " + context.market.twMMParts.mm713.toFixed(2) + " | 662: " + context.market.twMMParts.mm662.toFixed(2) + ")",
@@ -467,7 +506,10 @@ function buildContext() {
     surplus: 0,
     // [NEW v24.13] TW Weighted MM Calculation
     twWeightedMM: null,
-    twMMParts: { mm713: 0, mm662: 0 }
+    twMMParts: { mm713: 0, mm662: 0 },
+    // [NEW v24.14] TW Stock Prices
+    price713: indicatorsRaw["00713_Price"] || 0,
+    price662: indicatorsRaw["00662_Price"] || 0
   };
 
   if (indicatorsRaw["00713_MM"] && indicatorsRaw["00662_MM"]) {
@@ -616,6 +658,8 @@ function fetchMarketIndicators(sheetName) {
     // [NEW v24.13] TW Stock Indicators
     "00713_MM",
     "00662_MM",
+    "00713_Price", // [NEW v24.14] Rebalancing Math
+    "00662_Price", // [NEW v24.14] Rebalancing Math
     "00713_200DMA_Price",
     "00662_200DMA_Price"
   ];
