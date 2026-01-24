@@ -20,6 +20,8 @@ function doPost(e) {
     }
 
     // 2. 路由分發
+    console.log(`[Webhook] Received Action: ${data.action}`); // DEBUG LOG
+
     switch (data.action) {
       case 'update_tunnel_url':
         return handleTunnelUpdate(data);
@@ -34,10 +36,12 @@ function doPost(e) {
         return handleTriggerReport(data);
 
       default:
-        return ContentService.createTextOutput(JSON.stringify({ status: "error", msg: "Unknown Action" }));
+        console.warn(`[Webhook] Valid Action NOT FOUND. Payload: ${JSON.stringify(data)}`);
+        return ContentService.createTextOutput(JSON.stringify({ status: "error", msg: "Unknown Action", received: data.action }));
     }
 
   } catch (err) {
+    console.error("[Webhook] Crash: " + err.toString());
     return ContentService.createTextOutput(JSON.stringify({ status: "error", msg: err.toString() }));
   }
 }
