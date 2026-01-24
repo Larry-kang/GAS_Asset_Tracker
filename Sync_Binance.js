@@ -62,6 +62,8 @@ function getBinanceBalance() {
           assetList.push({ ccy: item.asset, amt: item.balance, type: 'USD-M Futures', status: 'Equity' });
         }
       });
+    } else if (usdmRes.code === "-403") {
+      SyncManager.log("WARNING", "Missing 'Enable Futures' API Permission. USD-M data skipped.", MODULE_NAME);
     }
 
     // D. COIN-M Futures
@@ -72,6 +74,8 @@ function getBinanceBalance() {
           assetList.push({ ccy: item.asset, amt: item.balance, type: 'COIN-M Futures', status: 'Equity' });
         }
       });
+    } else if (coinmRes.code === "-403") {
+      SyncManager.log("WARNING", "Missing 'Enable Futures' API Permission. COIN-M data skipped.", MODULE_NAME);
     }
 
     // E. Earn
@@ -155,7 +159,7 @@ function fetchFundingBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
 
 function fetchUsdmFuturesBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
   const res = fetchBinanceApi_(baseUrl, '/fapi/v2/balance', {}, apiKey, apiSecret, proxyPassword);
-  if (res.code !== "0") return { success: false };
+  if (res.code !== "0") return { success: false, code: res.code };
 
   const rawList = [];
   if (Array.isArray(res.data)) {
@@ -171,7 +175,7 @@ function fetchUsdmFuturesBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
 
 function fetchCoinmFuturesBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
   const res = fetchBinanceApi_(baseUrl, '/dapi/v1/balance', {}, apiKey, apiSecret, proxyPassword);
-  if (res.code !== "0") return { success: false };
+  if (res.code !== "0") return { success: false, code: res.code };
 
   const rawList = [];
   if (Array.isArray(res.data)) {
@@ -234,7 +238,10 @@ function fetchBinanceApi_(baseUrl, endpoint, params, apiKey, apiSecret, proxyPas
   };
   try {
     const response = UrlFetchApp.fetch(url, options);
-    if (response.getResponseCode() === 403) return { code: "-403", msg: "Proxy Auth Failed" };
+    const responseCode = response.getResponseCode();
+    if (responseCode === 403) return { code: "-403", msg: "Proxy or API Permission Auth Failed", endpoint: endpoint };
+    if (responseCode >= 400) return { code: responseCode.toString(), msg: response.getContentText(), endpoint: endpoint };
+
     return { code: "0", data: JSON.parse(response.getContentText()) };
   } catch (e) { return { code: "-1", msg: e.message }; }
 }

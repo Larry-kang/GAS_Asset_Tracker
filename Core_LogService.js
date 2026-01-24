@@ -23,12 +23,15 @@ const LogService = {
                 sheet.getRange("A1:D1").setFontWeight("bold").setBackground("#f3f3f3");
             }
 
-            sheet.appendRow([new Date(), level, context, message]);
+            // 2. DESC Write: Always insert at Row 2 (under header)
+            sheet.insertRowBefore(2);
+            sheet.getRange(2, 1, 1, 4).setValues([[new Date(), level, context, message]]);
 
-            // Soft Limit: Keep sheet performant (< 2000 rows)
-            // Actual retention is handled by cleanupOldLogs()
-            if (sheet.getLastRow() > 2000) {
-                sheet.deleteRows(2, 500); // Batch delete old rows
+            // 3. Smart Cleanup: Keep sheet performant (Strict 500 limit managed by cleanup)
+            // If rows > 550, delete old rows to bring it back to 500
+            const lastRow = sheet.getLastRow();
+            if (lastRow > 550) {
+                sheet.deleteRows(502, lastRow - 501); // Row 1 is header, Row 501 is the 500th log
             }
 
             Logger.log(`[${level}] ${context}: ${message}`);
@@ -52,27 +55,27 @@ const LogService = {
             cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
 
             // Read Timestamps (Col A)
-            // Assume Row 1 is header. Data starts Row 2.
+            // Now logs are DESC (Newest at top Row 2). Oldest are at the bottom.
             const lastRow = sheet.getLastRow();
             const timestamps = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
 
-            let deleteCount = 0;
-            for (let i = 0; i < timestamps.length; i++) {
+            let deleteStartRow = -1;
+            // Iterate from bottom to top to find the first log that IS within retention
+            for (let i = timestamps.length - 1; i >= 0; i--) {
                 const rowDate = new Date(timestamps[i][0]);
                 if (rowDate < cutoffDate) {
-                    deleteCount++;
+                    // This row and everything below it should be deleted
+                    deleteStartRow = i + 2; // +2 for header and 0-index
                 } else {
-                    // Logs are chronological (usually). 
-                    // Once we hit a new log, we can stop checking if we assume order.
-                    // But to be safe, if we assume unsorted, we can't break. 
-                    // However, logs ARE chronological.
+                    // Found a log that is NOT expired
                     break;
                 }
             }
 
-            if (deleteCount > 0) {
-                sheet.deleteRows(2, deleteCount);
-                this.log("INFO", `Cleaned up ${deleteCount} old logs (Retention: ${retentionDays} days).`, "LogService");
+            if (deleteStartRow !== -1) {
+                const numToDelete = lastRow - deleteStartRow + 1;
+                sheet.deleteRows(deleteStartRow, numToDelete);
+                this.log("INFO", `Cleaned up ${numToDelete} old logs (Retention: ${retentionDays} days).`, "LogService");
             }
 
         } catch (e) {
