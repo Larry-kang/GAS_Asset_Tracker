@@ -41,7 +41,40 @@ function getBinanceBalance() {
       });
     }
 
-    // B. Earn
+    // B. Funding (Wallet)
+    const fundingRes = fetchFundingBalances_(baseUrl, apiKey, apiSecret, proxyPassword);
+    if (fundingRes.success && fundingRes.data) {
+      fundingRes.data.forEach(item => {
+        if (item.free > 0) {
+          assetList.push({ ccy: item.asset, amt: item.free, type: 'Funding', status: 'Available' });
+        }
+        if (item.locked > 0) {
+          assetList.push({ ccy: item.asset, amt: item.locked, type: 'Funding', status: 'Frozen' });
+        }
+      });
+    }
+
+    // C. USD-M Futures
+    const usdmRes = fetchUsdmFuturesBalances_(baseUrl, apiKey, apiSecret, proxyPassword);
+    if (usdmRes.success && usdmRes.data) {
+      usdmRes.data.forEach(item => {
+        if (item.balance > 0) {
+          assetList.push({ ccy: item.asset, amt: item.balance, type: 'USD-M Futures', status: 'Equity' });
+        }
+      });
+    }
+
+    // D. COIN-M Futures
+    const coinmRes = fetchCoinmFuturesBalances_(baseUrl, apiKey, apiSecret, proxyPassword);
+    if (coinmRes.success && coinmRes.data) {
+      coinmRes.data.forEach(item => {
+        if (item.balance > 0) {
+          assetList.push({ ccy: item.asset, amt: item.balance, type: 'COIN-M Futures', status: 'Equity' });
+        }
+      });
+    }
+
+    // E. Earn
     const earnRes = fetchEarnPositions_(baseUrl, apiKey, apiSecret, proxyPassword);
     if (earnRes.success && earnRes.data) {
       earnRes.data.forEach(item => {
@@ -49,7 +82,7 @@ function getBinanceBalance() {
       });
     }
 
-    // C. Loans
+    // F. Loans
     const loanRes = fetchLoanOrders_(baseUrl, apiKey, apiSecret, proxyPassword);
     if (loanRes.success && loanRes.data) {
       loanRes.data.forEach(order => {
@@ -100,6 +133,58 @@ function fetchSpotBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
   return { success: true, data: rawList };
 }
 
+function fetchFundingBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
+  // Funding API requires POST
+  const res = fetchBinanceApi_(baseUrl, '/sapi/v1/asset/get-funding-asset', {}, apiKey, apiSecret, proxyPassword, 'POST');
+  if (res.code !== "0") return { success: false };
+
+  const rawList = [];
+  if (Array.isArray(res.data)) {
+    res.data.forEach(item => {
+      const free = parseFloat(item.free) || 0;
+      const locked = parseFloat(item.locked) || 0;
+      const freeze = parseFloat(item.freeze) || 0;
+      const totalLocked = locked + freeze;
+      if (free + totalLocked > 0) {
+        rawList.push({ asset: item.asset, free: free, locked: totalLocked });
+      }
+    });
+  }
+  return { success: true, data: rawList };
+}
+
+function fetchUsdmFuturesBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
+  const res = fetchBinanceApi_(baseUrl, '/fapi/v2/balance', {}, apiKey, apiSecret, proxyPassword);
+  if (res.code !== "0") return { success: false };
+
+  const rawList = [];
+  if (Array.isArray(res.data)) {
+    res.data.forEach(item => {
+      const balance = parseFloat(item.balance);
+      if (balance > 0) {
+        rawList.push({ asset: item.asset, balance });
+      }
+    });
+  }
+  return { success: true, data: rawList };
+}
+
+function fetchCoinmFuturesBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
+  const res = fetchBinanceApi_(baseUrl, '/dapi/v1/balance', {}, apiKey, apiSecret, proxyPassword);
+  if (res.code !== "0") return { success: false };
+
+  const rawList = [];
+  if (Array.isArray(res.data)) {
+    res.data.forEach(item => {
+      const balance = parseFloat(item.balance);
+      if (balance > 0) {
+        rawList.push({ asset: item.asset, balance });
+      }
+    });
+  }
+  return { success: true, data: rawList };
+}
+
 function fetchEarnPositions_(baseUrl, apiKey, apiSecret, proxyPassword) {
   const res = fetchBinanceApi_(baseUrl, '/sapi/v1/simple-earn/flexible/position', { limit: 100 }, apiKey, apiSecret, proxyPassword);
   if (res.code !== "0") return { success: false };
@@ -133,16 +218,17 @@ function fetchLoanOrders_(baseUrl, apiKey, apiSecret, proxyPassword) {
 }
 
 // ... fetchBinanceApi_ (Keep existing logic) ...
-function fetchBinanceApi_(baseUrl, endpoint, params, apiKey, apiSecret, proxyPassword) {
+function fetchBinanceApi_(baseUrl, endpoint, params, apiKey, apiSecret, proxyPassword, method = 'GET') {
   const timestamp = new Date().getTime();
   params.timestamp = timestamp;
   params.recvWindow = 10000;
   const queryString = Object.keys(params).map(key => `${key}=${encodeURIComponent(params[key])}`).join('&');
   const signature = Utilities.computeHmacSignature(Utilities.MacAlgorithm.HMAC_SHA_256, queryString, apiSecret)
     .map(b => ('0' + (b & 0xFF).toString(16)).slice(-2)).join('');
+  
   const url = `${baseUrl}${endpoint}?${queryString}&signature=${signature}`;
   const options = {
-    'method': 'GET',
+    'method': method,
     'headers': { 'X-MBX-APIKEY': apiKey, 'Content-Type': 'application/json', 'x-proxy-auth': proxyPassword },
     'muteHttpExceptions': true
   };
