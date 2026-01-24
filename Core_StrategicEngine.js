@@ -260,6 +260,9 @@ function runDailyInvestmentCheck() {
     // [User Request P3-2] Auto Sync
     broadcastReport_(context, alerts);
 
+    // [New v24.12] Trigger Snapshot with full context to ensure accuracy
+    autoRecordDailyValues(context);
+
   } catch (e) {
     const email = Settings.get('ADMIN_EMAIL');
     if (email) MailApp.sendEmail(email, "[錯誤] SAP 執行失敗", e.toString());

@@ -4,7 +4,7 @@
  */
 const Config = {
     SYSTEM_NAME: "SAP - Sovereign Asset Protocol",
-    VERSION: "v24.11", // Added Segmented LTV & Refined Cashflow Monitoring
+    VERSION: "v24.12", // Enhanced Snapshot Accuracy & Multi-Account Binance Sync
 
     // Feature Flags
     FEATURES: {
