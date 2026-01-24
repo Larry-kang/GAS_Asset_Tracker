@@ -1,9 +1,11 @@
 /**
  * @OnlyCurrentDoc
  * 這是一份自動化每日資產紀錄腳本（儲存格直讀版）。
- * 版本：2.6
- * 日期：2025年8月5日
- * 更新：新增「自動公式填充」功能。在寫入每日數據後，自動將後續欄位的公式向下填充。
+ * 版本：2.7
+ * 日期：2026年1月24日
+ * 更新：
+ * 1. 加入 SpreadsheetApp.flush() 確保公式計算完成。
+ * 2. 優先使用 Context (Fast Path) 數據以提高準確性。
  */
 
 // =================================================================================
@@ -22,43 +24,38 @@ function autoRecordDailyValues(context) {
     const destinationSheet = ss.getSheetByName(DESTINATION_SHEET_NAME_V2);
     if (!destinationSheet) throw new Error(`找不到名為 "${DESTINATION_SHEET_NAME_V2}" 的分頁。請先建立此分頁。`);
 
+    // --- 【*** 核心修正 v2.7 - Formula Recalculation ***】 ---
+    // 強制重新計算公式，防止 read stale data
+    SpreadsheetApp.flush();
+
     let cashValue, stockValue, cryptoValue, cryptoliabilityValue, liabilityValue, netWorthValue, totalAssetValue;
 
     if (context && context.portfolioSummary) {
-      // [Fast Path] 直接從計算上下文讀取
-      const s = context.portfolioSummary;
+      // [Fast Path] 直接從計算上下文讀取 (更準確，不依賴 UI)
+      const pSummary = context.portfolioSummary;
 
-      // Mapping Logic
-      // Cash: Cash + USDT + USDC
-      cashValue = (s["CASH_TWD"] || 0) + (s["USDT"] || 0) + (s["USDC"] || 0) + (s["BOXX"] || 0);
+      // 1. 現金與流動性
+      cashValue = (pSummary["CASH_TWD"] || 0) + (pSummary["USDT"] || 0) + (pSummary["USDC"] || 0) + (pSummary["BOXX"] || 0);
 
-      // Stock: US Stock + TW Stock + ETFs
-      stockValue = (s["QQQ"] || 0) + (s["00713"] || 0) + (s["00662"] || 0) + (s["TQQQ"] || 0);
+      // 2. 股票資產 (L2)
+      stockValue = context.assetGroups.find(g => g.id === "L2")?.value || 0;
 
-      // Crypto: BTC (Spot + IBIT) + Others
-      cryptoValue = (s["BTC_Spot"] || 0) + (s["IBIT"] || 0) + (s["ETH"] || 0) + (s["BNB"] || 0);
+      // 3. 數位資產 (BTC + Others)
+      // 使用 L1 (Reserve) + L4 (Misc) 作為數位資產總額
+      const l1Value = context.assetGroups.find(g => g.id === "L1")?.value || 0;
+      const l4Value = context.assetGroups.find(g => g.id === "L4")?.value || 0;
+      cryptoValue = l1Value + l4Value;
 
-      // Liabilities (Usually negative in summary, convert to positive for logging if needed, or keep raw)
-      // Project Memory says: Liabilities are negative in portfolioSummary.
-      // Snapshot expects positive magnitude? 
-      // Original code: Math.abs(liabilityValue)
-
-      // Need to find where Debt is stored in portfolioSummary.
-      // Usually "Loan_TWD" or similar?
-      // Let's check Core_StrategicEngine again. 
-      // It aggregates by ticker. Debt is usually NOT in portfolioSummary tickers unless mapped.
-      // Wait, context.netEntityValue is Net. totalGrossAssets is Gross.
-      // Liability = Total Gross - Net Entity.
-
+      // 4. 指標數據
       totalAssetValue = context.totalGrossAssets;
       netWorthValue = context.netEntityValue;
-      const totalDebt = totalAssetValue - netWorthValue;
+      liabilityValue = totalAssetValue - netWorthValue;
+      cryptoliabilityValue = 0; // 已整合在淨值計算中
 
-      liabilityValue = totalDebt;
-      cryptoliabilityValue = 0; // Configured globally now
+      LogService.info(`Snapshot captured via Fast Path (Memory Context)`, 'Snapshot:Mode');
 
     } else {
-      // [Slow Path] 讀取 Sheet (Legacy / Fallback)
+      // [Slow Path] 讀取 Sheet (Fallback)
       const sourceSheet = ss.getSheetByName(SOURCE_SHEET_NAME_V2);
       if (!sourceSheet) throw new Error(`找不到名為 "${SOURCE_SHEET_NAME_V2}" 的分頁(且無自動化數據輸入)。`);
 
@@ -69,6 +66,8 @@ function autoRecordDailyValues(context) {
       liabilityValue = sourceSheet.getRange("B6").getValue();
       netWorthValue = sourceSheet.getRange("B7").getValue();
       totalAssetValue = sourceSheet.getRange("D19").getValue();
+
+      LogService.info(`Snapshot captured via Slow Path (UI Cells)`, 'Snapshot:Mode');
     }
 
     // 步驟二：計算「增幅百分比」
