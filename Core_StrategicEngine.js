@@ -357,8 +357,9 @@ function runDailyInvestmentCheck() {
   }
 }
 
+
 /**
- * Executes frequent (30-min) strategic monitor.
+ * Executes Frequent Strategic Monitor.
  * Updates dashboard and logs alerts without sending emails (noise reduction).
  * @public
  */
@@ -383,6 +384,37 @@ function runStrategicMonitor() {
     Logger.log("[Monitor Error] " + e.toString());
   }
 }
+
+/**
+ * [Webhook Target]
+ * Manually triggered report via Discord / API.
+ * Does NOT record daily snapshot history, only broadcasts current state.
+ * @public
+ * @returns {Object} JSON result for webhook response
+ */
+function triggerManualReport() {
+  try {
+    const context = buildContext();
+    let alerts = [];
+    RULES.forEach(rule => { if (rule.condition(context)) { const action = rule.getAction(context); if (action) alerts.push(action); } });
+
+    // Optional: Update dashboard on manual trigger? Yes, why not.
+    updateDashboard(context);
+
+    broadcastReport_(context, alerts);
+
+    return {
+      status: "success",
+      message: "Report generated and sent to Discord/Email.",
+      alertsCount: alerts.length
+    };
+
+  } catch (e) {
+    console.error("Manual Trigger Failed", e);
+    return { status: "error", message: e.toString() };
+  }
+}
+
 
 function updateDashboard(context) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();

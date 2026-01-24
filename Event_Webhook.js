@@ -30,6 +30,9 @@ function doPost(e) {
       case 'log_client_error':
         return handleLogClientError(data);
 
+      case 'trigger_report':
+        return handleTriggerReport(data);
+
       default:
         return ContentService.createTextOutput(JSON.stringify({ status: "error", msg: "Unknown Action" }));
     }
@@ -112,5 +115,15 @@ function triggerRemoteRestart() {
   } catch (e) {
     ss.toast("❌ 連線錯誤：無法連接到電腦。");
     console.error(e);
+  }
+}
+
+function handleTriggerReport(data) {
+  // Call the new public function in StrategicEngine
+  if (typeof triggerManualReport === 'function') {
+    const result = triggerManualReport();
+    return ContentService.createTextOutput(JSON.stringify(result));
+  } else {
+    return ContentService.createTextOutput(JSON.stringify({ status: "error", msg: "StrategicEngine not loaded or function missing" }));
   }
 }
