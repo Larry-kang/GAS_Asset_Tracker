@@ -225,7 +225,7 @@ function fetchBinanceApi_(baseUrl, endpoint, params, apiKey, apiSecret, proxyPas
   const queryString = Object.keys(params).map(key => `${key}=${encodeURIComponent(params[key])}`).join('&');
   const signature = Utilities.computeHmacSignature(Utilities.MacAlgorithm.HMAC_SHA_256, queryString, apiSecret)
     .map(b => ('0' + (b & 0xFF).toString(16)).slice(-2)).join('');
-  
+
   const url = `${baseUrl}${endpoint}?${queryString}&signature=${signature}`;
   const options = {
     'method': method,
