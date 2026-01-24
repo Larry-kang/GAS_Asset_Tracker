@@ -42,6 +42,7 @@ function doPost(e) {
 // --- Controllers / Handlers ---
 
 function handleTunnelUpdate(data) {
+  const oldUrl = Settings.get('TUNNEL_URL');
   Settings.set('TUNNEL_URL', data.url);
 
   // ⭐ 修改建議：總是更新密碼，以保持與電腦端同步
@@ -50,7 +51,15 @@ function handleTunnelUpdate(data) {
     Settings.set('PROXY_PASSWORD', data.password);
   }
 
-  return ContentService.createTextOutput(JSON.stringify({ status: "success", msg: "URL & Password Updated" }));
+  console.log(`[Webhook] Tunnel URL Updated: ${oldUrl} -> ${data.url}`);
+  return ContentService.createTextOutput(JSON.stringify({
+    status: "success",
+    msg: "URL Updated",
+    data: {
+      url: data.url,
+      timestamp: new Date().toISOString()
+    }
+  }));
 }
 
 function handleForceUpdate(data) {

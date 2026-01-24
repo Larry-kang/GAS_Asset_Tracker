@@ -54,9 +54,16 @@ const Settings = {
      * @param {string} value 
      */
     set: function (key, value) {
-        PropertiesService.getScriptProperties().setProperty(key, value.toString());
-        // Invalidate cache to ensure immediate effect
+        if (value === null || value === undefined) {
+            PropertiesService.getScriptProperties().deleteProperty(key);
+        } else {
+            PropertiesService.getScriptProperties().setProperty(key, value.toString());
+        }
+
+        // Invalidate execution-level cache
         this._cache = null;
+
+        // Invalidate global script cache
         ScriptCache.remove('GLOBAL_PROPERTIES_SET');
     },
 
