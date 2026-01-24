@@ -4,7 +4,7 @@
  */
 const Config = {
     SYSTEM_NAME: "SAP - Sovereign Asset Protocol",
-    VERSION: "v24.12", // Enhanced Snapshot Accuracy & Multi-Account Binance Sync
+    VERSION: "v24.13", // V5.0 Taiwan Stock Leverage Strategy Integration
 
     // Feature Flags
     FEATURES: {

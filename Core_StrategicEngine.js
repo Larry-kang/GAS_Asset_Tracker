@@ -205,6 +205,55 @@ const RULES = [
         action: "建議找市場高位機會清空雜項資產，回歸 L1 (BTC) 或 L2 (穩定基底)。"
       };
     }
+  },
+  {
+    name: "Taiwan Stock Leverage Advisor",
+    phase: "All",
+    condition: function (context) { return context.market.twWeightedMM !== null; },
+    getAction: function (context) {
+      const mm = context.market.twWeightedMM;
+      let zone = "", action = "", level = "[戰略] 台股指引";
+      let targetLoan = 0;
+
+      // V5.0 Taiwan Stock Matrix
+      if (mm > 1.35) {
+        zone = "極度泡沫 (Bubble)";
+        action = "及時鎖利: 清償債務，僅保留象徵性負債。Target Loan < 10%";
+        targetLoan = 0.1;
+      } else if (mm > 1.15) {
+        zone = "高位警戒 (Warning)";
+        action = "停止增貸: 暫停投入，開始用薪資還本。Target Loan 15-20%";
+        targetLoan = 0.2;
+      } else if (mm > 1.00) {
+        zone = "中性平衡 (Neutral)";
+        action = "穩定領息: 維持現狀。股息優先還息。Target Loan 30%";
+        targetLoan = 0.3;
+      } else if (mm > 0.85) {
+        zone = "低位部屬 (Accumulate)";
+        action = "分批投入: 動員額度分批買入 00662。Target Loan 40-50%";
+        targetLoan = 0.5;
+      } else {
+        zone = "深水炸彈 (Deep Value)";
+        action = "Full Mobilization: 借足額度執行 Aggressive Buy。Target Loan 60%";
+        level = "[機會] 台股黃金坑";
+        targetLoan = 0.6;
+      }
+
+      // Check if Loan Ratio is too high vs Target
+      const stockGroup = context.pledgeGroups.find(g => g.name.toLowerCase().includes("stock"));
+      const currentLoanRatio = stockGroup ? (1 / stockGroup.ratio) : 0;
+
+      let warning = "";
+      if (currentLoanRatio > (targetLoan + 0.1)) {
+        warning = "\n⚠️ 當前借貸比 (" + (currentLoanRatio * 100).toFixed(0) + "%) 顯著高於目標，建議去槓桿。";
+      }
+
+      return {
+        level: level + " (" + zone + ")",
+        message: "加權 MM: " + mm.toFixed(2) + " (713: " + context.market.twMMParts.mm713.toFixed(2) + " | 662: " + context.market.twMMParts.mm662.toFixed(2) + ")",
+        action: action + warning
+      };
+    }
   }
 ];
 
@@ -415,8 +464,29 @@ function buildContext() {
     // [NEW v24.10]
     btcMM: indicatorsRaw.BTC_MM || null,
     usdTwdRate: 32.5,
-    surplus: 0
+    surplus: 0,
+    // [NEW v24.13] TW Weighted MM Calculation
+    twWeightedMM: null,
+    twMMParts: { mm713: 0, mm662: 0 }
   };
+
+  if (indicatorsRaw["00713_MM"] && indicatorsRaw["00662_MM"]) {
+    market.twMMParts.mm713 = indicatorsRaw["00713_MM"];
+    market.twMMParts.mm662 = indicatorsRaw["00662_MM"];
+
+    // Calculate Weights based on Real Portfolio Value
+    const val713 = portfolioSummary['00713'] || 0;
+    const val662 = portfolioSummary['00662'] || portfolioSummary['00662_TW'] || 0; // Handle alias
+    const totalTW = val713 + val662;
+
+    if (totalTW > 0) {
+      // Real-time Weight Priority
+      market.twWeightedMM = (market.twMMParts.mm713 * (val713 / totalTW)) + (market.twMMParts.mm662 * (val662 / totalTW));
+    } else {
+      // Fallback Strategy Weight (66% : 33%)
+      market.twWeightedMM = (market.twMMParts.mm713 * 0.66) + (market.twMMParts.mm662 * 0.34);
+    }
+  }
 
   const monthlyDebt = indicatorsRaw.MONTHLY_DEBT_COST || 10574;
   const liquidity = (portfolioSummary["CASH_TWD"] || 0) + (portfolioSummary["USDT"] || 0) + (portfolioSummary["USDC"] || 0);
@@ -542,7 +612,12 @@ function fetchMarketIndicators(sheetName) {
     "BTC_MM",  // [NEW v24.10] Mayer Multiple for dynamic allocation
     "Alloc_L1_Target",
     "Alloc_L2_Target",
-    "Alloc_L3_Target"
+    "Alloc_L3_Target",
+    // [NEW v24.13] TW Stock Indicators
+    "00713_MM",
+    "00662_MM",
+    "00713_200DMA_Price",
+    "00662_200DMA_Price"
   ];
 
   for (let i = 0; i < data.length; i++) {
@@ -667,6 +742,18 @@ function generatePortfolioSnapshot(context) {
     else if (market.btcMM < 2.0) phase = "🟡 中性區";
     else phase = "🔴 去槓桿區";
     s += "- 週期定位: " + phase + "\n";
+  }
+
+  // [NEW v24.13] TW Weighted MM Display
+  if (market.twWeightedMM) {
+    let twPhase = "";
+    if (market.twWeightedMM > 1.35) twPhase = "🔴 極度泡沫";
+    else if (market.twWeightedMM > 1.15) twPhase = "🟠 高位警戒";
+    else if (market.twWeightedMM > 1.00) twPhase = "🟡 中性平衡";
+    else if (market.twWeightedMM > 0.85) twPhase = "🟢 低位部屬";
+    else twPhase = "🟢 深水炸彈 (機會)";
+
+    s += "- 台股加權 MM: " + market.twWeightedMM.toFixed(2) + " (" + twPhase + ")\n";
   }
 
   s += "\n[II] 生存指標 (SURVIVAL METRICS)\n";
