@@ -35,6 +35,9 @@ function doPost(e) {
       case 'trigger_report':
         return handleTriggerReport(data);
 
+      case 'get_inventory':
+        return handleGetInventory(data);
+
       default:
         console.warn(`[Webhook] Valid Action NOT FOUND. Payload: ${JSON.stringify(data)}`);
         return ContentService.createTextOutput(JSON.stringify({ status: "error", msg: "Unknown Action", received: data.action }));
@@ -43,6 +46,53 @@ function doPost(e) {
   } catch (err) {
     console.error("[Webhook] Crash: " + err.toString());
     return ContentService.createTextOutput(JSON.stringify({ status: "error", msg: err.toString() }));
+  }
+}
+
+/**
+ * [Read-Only API] 獲取當前庫存與淨值快照
+ * 供 sovereign-alpha-research (SAR) 模擬引擎使用
+ */
+function handleGetInventory(data) {
+  try {
+    // 確保 StrategicEngine 已加載且 buildContext 可用
+    if (typeof buildContext !== 'function') {
+      throw new Error("Core_StrategicEngine buildContext() not found.");
+    }
+
+    const context = buildContext();
+
+    // 輸出精簡版 Payload (V5.1 規格)
+    const payload = {
+      status: "success",
+      timestamp: new Date().toISOString(),
+      netEntityValue: context.netEntityValue,
+      totalGrossAssets: context.totalGrossAssets,
+      portfolio: context.portfolioSummary,
+      indicators: {
+        ltv: context.indicators.ltv,
+        cryptoLTV: context.indicators.cryptoLTV,
+        globalCryptoLTV: context.indicators.globalCryptoLTV,
+        survivalRunway: context.indicators.survivalRunway
+      },
+      pledgeGroups: context.pledgeGroups.map(g => ({
+        name: g.name,
+        ratio: g.ratio,
+        collateral: g.collateralValue,
+        loan: g.loanAmount
+      }))
+    };
+
+    return ContentService.createTextOutput(JSON.stringify(payload))
+      .setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    console.error("[Webhook] get_inventory Failed: " + err.toString());
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "error",
+      msg: err.toString(),
+      source: "GAS_Asset_Tracker"
+    }));
   }
 }
 
