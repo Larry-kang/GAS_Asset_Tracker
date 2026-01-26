@@ -1,0 +1,265 @@
+# ==========================================================
+# --- SAP Discord Bridge & Local Tunnel Starter (v10.2) ---
+# --- Hotfix: v3.1 Command Integration & String Escape ---
+# ==========================================================
+
+$ErrorActionPreference = "Stop"
+
+function Log-Header ($Title) {
+    Write-Host "`n=== $Title ===" -ForegroundColor Cyan
+}
+
+function Log-Action ($Msg) {
+    Write-Host "   [*] $Msg" -NoNewline
+}
+
+function Log-Result ($Status, $Detail) {
+    if ($Status -eq "OK") {
+        Write-Host " ... [OK]" -ForegroundColor Green
+        if ($Detail) { Write-Host "       > $Detail" -ForegroundColor Gray }
+    }
+    else {
+        Write-Host " ... [$Status]" -ForegroundColor Red
+        if ($Detail) { Write-Host "       > $Detail" -ForegroundColor Gray }
+    }
+}
+
+function Pause-Script {
+    Write-Host "`n[FAIL] Press any key to exit..." -ForegroundColor Red
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+}
+
+try {
+    Log-Header "System Initialization (v10.2)"
+
+    # 1. Environment Check
+    Log-Action "Checking Workspace"
+    $Cwd = Get-Location
+    Log-Result "OK" "Path: $Cwd"
+
+    # 2. Node.js & Dependencies Check
+    Log-Action "Checking NPM Dependencies"
+    if (-not (Test-Path "package.json")) {
+        # Initialize package.json if missing
+        $PackageJson = @{
+            name         = "sap-discord-bridge"
+            version      = "1.0.0"
+            main         = "index.js"
+            dependencies = @{
+                express                 = "^4.18.2"
+                "http-proxy-middleware" = "^2.0.6"
+                "discord.js"            = "^14.13.0"
+                "node-fetch"            = "^2.6.7"
+            }
+        } | ConvertTo-Json
+        $PackageJson | Out-File -FilePath "package.json" -Encoding utf8
+    }
+
+    if (-not (Test-Path "node_modules")) {
+        Log-Result "WAIT" "Installing missing modules (First Time)..."
+        npm install --no-audit --no-fund
+        Log-Result "OK" "Installation Complete"
+    }
+    else {
+        Log-Result "OK" "Modules ready"
+    }
+
+    # 3. Load Config From GAS (Search for valid Settings if possible)
+    Log-Action "Loading GAS Web App URL"
+    # This is a critical part, user needs a way to store/retrieve this. 
+    # For now, we will try to read from a local .env or config file if it exists, or use the placeholder.
+    $ConfigFile = "bridge_config.txt"
+    if (Test-Path $ConfigFile) {
+        $GasWebAppUrl = (Get-Content $ConfigFile -Raw).Trim()
+    }
+    else {
+        # Fallback to current placeholder - USER SHOULD EDIT THIS OR USE SETUP
+        $GasWebAppUrl = "REPLACE_WITH_YOUR_GAS_WEBAPP_URL"
+    }
+    Log-Result "OK" "Loaded"
+
+    # 3. Secret Token
+    Log-Action "Verifying Secret Token"
+    $SecretFile = "bridge_secret.txt"
+    if (-not (Test-Path $SecretFile)) {
+        [Guid]::NewGuid().ToString("N") | Out-File -FilePath $SecretFile -Encoding utf8
+        Log-Result "OK" "Generated New Token"
+    }
+    else {
+        Log-Result "OK" "Loaded Existing Token"
+    }
+    $PROXY_PASSWORD = (Get-Content $SecretFile -Raw).Trim()
+
+    # 4. Discord Token
+    Log-Action "Verifying Discord Token"
+    $DiscordToken = "PASTE_YOUR_DISCORD_TOKEN_HERE" # User should edit this
+    Log-Result "OK" "Loaded"
+
+    # 5. Generate index.js (Using Single-Quoted Here-String to avoid PS Interpolation)
+    Log-Action "Generating Proxy Core (index.js)"
+    $indexJsContent = @'
+const express = require('express');
+const { createProxyMiddleware } = require('http-proxy-middleware');
+const fs = require('fs');
+const { Client, GatewayIntentBits, REST, Routes } = require('discord.js');
+
+const app = express();
+app.use(express.json());
+
+// --- Configuration (Placeholders) ---
+const GAS_URL = "@@GAS_URL@@";
+const MY_SECRET = "@@SECRET@@";
+const DISCORD_TOKEN = "@@DISCORD_TOKEN@@";
+
+// --- Logger Utility ---
+app.use((req, res, next) => {
+    if (req.url !== '/favicon.ico') {
+        console.log('[INCOMING] ' + new Date().toLocaleTimeString() + ' | ' + req.method + ' ' + req.url);
+    }
+    next();
+});
+
+// --- Control API ---
+app.post('/restart', (req, res) => {
+    const auth = req.headers['x-proxy-auth'];
+    if (auth !== MY_SECRET) return res.status(403).send('Forbidden');
+    console.log('[CONTROL] Remote Restart Signal Received.');
+    res.send({ status: 'success', message: 'Restarting local bridge...' });
+    setTimeout(() => fs.writeFileSync('.restart_flag', 'true'), 1000);
+});
+
+const PORT = 3000;
+app.listen(PORT, () => {
+    console.log('==========================================');
+    console.log('  SAP BRIDGE CORE RUNNING ON PORT ' + PORT);
+    console.log('==========================================');
+});
+
+// --- Discord Bot Core ---
+if (DISCORD_TOKEN && DISCORD_TOKEN !== 'PASTE_YOUR_DISCORD_TOKEN_HERE') {
+    const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+
+    client.once('ready', async () => {
+        console.log('[Discord] Gateway Active: ' + client.user.tag);
+        
+        // Startup Notification
+        try {
+            const payload = {
+                embeds: [{
+                    title: "? Bridge �֤ߤw�W�u",
+                    description: "SAP Discord �h�D���w�Ұʨç����s�u�C\n���O�t��: ** v3.1 Ready **",
+                    color: 3066993,
+                    timestamp: new Date().toISOString()
+                }]
+            };
+            console.log('[Discord] Startup signal ready.');
+        } catch (e) { console.error(e); }
+
+        const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
+        const commands = [
+            { name: 'report', description: 'Ĳ�o���㪺 SAP �Բ����i' },
+            { name: 'status', description: '����Y�ɸ겣���p�ַ� (��²��)' },
+            { name: 'sync', description: '�ߧYĲ�o���t�θ겣�l�B�P�B' },
+            { name: 'restart', description: '���ݭ��ҥ�����������' }
+        ];
+
+        try {
+            await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+            console.log('[Discord] All Commands Registered.');
+        } catch (error) { console.error(error); }
+    });
+
+    client.on('interactionCreate', async interaction => {
+        if (!interaction.isChatInputCommand()) return;
+        const commandName = interaction.commandName;
+        console.log(`[COMMAND] /${commandName} received from ${interaction.user.tag}`);
+
+        if (commandName === 'restart') {
+            await interaction.reply({ content: "? **���ҫ��O�w����**\n> Bridge �N�b 3 ���������æ۰ʱҰ�...", ephemeral: false });
+            setTimeout(() => fs.writeFileSync('.restart_flag', 'true'), 2000);
+            return;
+        }
+
+        await interaction.deferReply({ ephemeral: false });
+
+        try {
+            let action = '';
+            if (commandName === 'report') action = 'trigger_report';
+            if (commandName === 'status') action = 'get_quick_status';
+            if (commandName === 'sync') action = 'trigger_balance_update';
+
+            const response = await fetch(GAS_URL, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ action: action, password: MY_SECRET }),
+                redirect: 'follow'
+            });
+            const result = await response.json();
+            
+            if(result.status === 'success') {
+                if (commandName === 'status') {
+                    const d = result.data;
+                    const embed = {
+                        title: "? SAP �Y�ɪ��A�ַ�",
+                        color: 3066993,
+                        fields: [
+                            { name: "? �b�� (Net Worth)", value: "`TWD " + Math.round(d.netWorth).toLocaleString() + "`", inline: false },
+                            { name: "?? �` LTV", value: (d.ltv * 100).toFixed(1) + "%", inline: true },
+                            { name: "? Crypto LTV", value: (d.cryptoLtv * 100).toFixed(1) + "%", inline: true },
+                            { name: "? BTC ����", value: "$" + d.btcPrice.toLocaleString(), inline: true },
+                            { name: "? Runway (��)", value: d.runway.toFixed(1), inline: true }
+                        ],
+                        footer: { text: "Version: " + d.version + " | Updated: " + new Date(d.timestamp).toLocaleTimeString() }
+                    };
+                    await interaction.editReply({ embeds: [embed] });
+                } else {
+                    await interaction.editReply({ content: "? **���O���榨�\!**\n> " + (result.message || result.msg) });
+                }
+            } else {
+                await interaction.editReply({ content: "? **GAS ���~**: " + (result.msg || result.message) });
+            }
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: "? **�h�D�q�T���~**: " + error.message });
+        }
+    });
+
+    client.login(DISCORD_TOKEN).catch(e => console.error('[Discord] Login Failed:', e.message));
+}
+'@
+    # Replacement Logic
+    $indexJsContent = $indexJsContent.Replace("@@GAS_URL@@", $GasWebAppUrl)
+    $indexJsContent = $indexJsContent.Replace("@@SECRET@@", $PROXY_PASSWORD)
+    $indexJsContent = $indexJsContent.Replace("@@DISCORD_TOKEN@@", $DiscordToken)
+
+    $indexJsContent | Out-File -FilePath "index.js" -Encoding utf8 -Force
+    Log-Result "OK"
+
+    # Main Cycle
+    while ($true) {
+        if (Test-Path ".restart_flag") { Remove-Item ".restart_flag" -Force }
+        
+        Log-Header "Starting Cycle: $(Get-Date -Format 'HH:mm:ss')"
+        
+        Log-Action "Starting Node.js Proxy"
+        $Process = Start-Process node -ArgumentList "index.js" -NoNewWindow -PassThru
+        Log-Result "OK" "PID: $($Process.Id)"
+
+        while (-not $Process.HasExited) {
+            if (Test-Path ".restart_flag") {
+                Write-Host "`n[CONTROL] Stopping process for restart..." -ForegroundColor Yellow
+                Stop-Process -Id $Process.Id -Force
+                break
+            }
+            Start-Sleep -Seconds 2
+        }
+
+        Write-Host "`n[FAIL] Proxy exited. Restarting in 10s..." -ForegroundColor Red
+        Start-Sleep -Seconds 10
+    }
+
+}
+catch {
+    Write-Host "`n[FATAL ERROR] $($_.Exception.Message)" -ForegroundColor Red
+    Pause-Script
+}
