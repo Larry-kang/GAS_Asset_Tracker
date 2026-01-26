@@ -38,6 +38,9 @@ function doPost(e) {
       case 'get_inventory':
         return handleGetInventory(data);
 
+      case 'get_quick_status':
+        return handleQuickSummary(data);
+
       default:
         console.warn(`[Webhook] Valid Action NOT FOUND. Payload: ${JSON.stringify(data)}`);
         return ContentService.createTextOutput(JSON.stringify({ status: "error", msg: "Unknown Action", received: data.action }));
@@ -73,9 +76,27 @@ function handleTunnelUpdate(data) {
 }
 
 function handleForceUpdate(data) {
-  // 這裡呼叫 Binance.gs 裡面的函式
-  getBinanceBalance();
-  return ContentService.createTextOutput(JSON.stringify({ status: "success", msg: "Balance Update Triggered" }));
+  const context = "Webhook:Sync";
+  LogService.info("Discord User triggered manual balance sync.", context);
+
+  // 這裡呼叫 Binance.gs 裡面的函式 (假設其他同步函式也在此邏輯內或由 runAutomationMaster 處理)
+  // 為了精確，我們觸發全系統自動化
+  if (typeof runAutomationMaster === 'function') {
+    runAutomationMaster();
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "success",
+      msg: "System-wide balance sync triggered successfully.",
+      timestamp: new Date().toISOString()
+    }));
+  } else {
+    // Fallback to Binance only if Master is missing
+    getBinanceBalance();
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "success",
+      msg: "Binance sync triggered (Master sync function missing).",
+      timestamp: new Date().toISOString()
+    }));
+  }
 }
 
 function handleLogClientError(data) {
@@ -126,10 +147,15 @@ function triggerRemoteRestart() {
 }
 
 function handleTriggerReport(data) {
-  // Call the new public function in StrategicEngine
+  const context = "Webhook:Report";
+  LogService.info("Discord User requested manual tactical report.", context);
+
   if (typeof triggerManualReport === 'function') {
     const result = triggerManualReport();
-    return ContentService.createTextOutput(JSON.stringify(result));
+    return ContentService.createTextOutput(JSON.stringify({
+      ...result,
+      timestamp: new Date().toISOString()
+    }));
   } else {
     return ContentService.createTextOutput(JSON.stringify({ status: "error", msg: "StrategicEngine not loaded or function missing" }));
   }
@@ -137,7 +163,6 @@ function handleTriggerReport(data) {
 
 function handleGetInventory(data) {
   // [ReadOnly] Export calculated context for SAR simulation
-  // This allows sovereign-alpha-research to use REAL NW data for projections
   if (typeof buildContext === 'function') {
     const context = buildContext();
     return ContentService.createTextOutput(JSON.stringify({
@@ -149,4 +174,32 @@ function handleGetInventory(data) {
   } else {
     return ContentService.createTextOutput(JSON.stringify({ status: "error", msg: "StrategicEngine (buildContext) not found" }));
   }
+}
+
+/**
+ * [Discord Optimized] 回傳精簡版狀態快照
+ */
+function handleQuickSummary(data) {
+  const logCtx = "Webhook:Status";
+  LogService.info("Discord User requested quick status check.", logCtx);
+
+  if (typeof buildContext !== 'function') {
+    return ContentService.createTextOutput(JSON.stringify({ status: "error", msg: "Core Engine missing" }));
+  }
+
+  const ctx = buildContext();
+  const summary = {
+    netWorth: ctx.netEntityValue,
+    ltv: ctx.indicators.ltv,
+    cryptoLtv: ctx.indicators.cryptoLtv,
+    btcPrice: ctx.market.btcPrice,
+    runway: ctx.indicators.survivalRunway,
+    timestamp: new Date().toISOString(),
+    version: Config.VERSION
+  };
+
+  return ContentService.createTextOutput(JSON.stringify({
+    status: "success",
+    data: summary
+  }));
 }
