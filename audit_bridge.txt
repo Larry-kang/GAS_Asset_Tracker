@@ -1,0 +1,527 @@
+# ==========================================================
+# --- Binance Bridge (v10.2 Auto-Startup Edition) ---
+# ==========================================================
+# Feature:
+# 1. Remote Restart: Via GAS (creates .restart_flag)
+# 2. Local Restart: Press 'R' in this console to reboot.
+# 3. Auto-Startup: Enable/Disable via 'E'/'D' on launch.
+# ==========================================================
+
+$ErrorActionPreference = "Stop"
+$WorkDir = "$env:USERPROFILE\BinanceBridge"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+# ==========================================================
+# --- [NEW] Auto-Startup Management Module ---
+# ==========================================================
+
+$TaskName = "BinanceBridge_AutoStart"
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$BatPath = Join-Path $ScriptDir "Run.bat"
+
+function Check-StartupTask {
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    return ($null -ne $task)
+}
+
+function Add-StartupTask {
+    if (-not (Test-Path $BatPath)) {
+        Write-Host "[!] Run.bat not found: $BatPath" -ForegroundColor Red
+        return $false
+    }
+    
+    try {
+        $Action = New-ScheduledTaskAction -Execute $BatPath -WorkingDirectory $ScriptDir
+        $Trigger = New-ScheduledTaskTrigger -AtStartup
+        $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+        $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERNAME" -RunLevel Highest
+        
+        Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal -Force | Out-Null
+        return $true
+    }
+    catch {
+        Write-Host "[!] Need Admin rights. Run as Administrator." -ForegroundColor Red
+        return $false
+    }
+}
+
+function Remove-StartupTask {
+    try {
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Stop
+    }
+    catch {
+        Write-Host "[!] Need Admin rights. Run as Administrator." -ForegroundColor Red
+    }
+}
+
+# --- Startup Check (3 second timeout) ---
+$IsRegistered = Check-StartupTask
+
+Write-Host ""
+if ($IsRegistered) {
+    Write-Host "[Auto-Startup] " -NoNewline -ForegroundColor Gray
+    Write-Host "ENABLED" -ForegroundColor Green
+    Write-Host "    Press 'D' to DISABLE, or wait 5s to continue..." -ForegroundColor DarkGray
+}
+else {
+    Write-Host "[Auto-Startup] " -NoNewline -ForegroundColor Gray
+    Write-Host "DISABLED" -ForegroundColor Yellow
+    Write-Host "    Press 'E' to ENABLE, or wait 5s to continue..." -ForegroundColor DarkGray
+}
+
+# Wait for input with timeout
+$timeout = 5
+$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+$keyPressed = $false
+
+while ($stopwatch.Elapsed.TotalSeconds -lt $timeout) {
+    if ([Console]::KeyAvailable) {
+        $key = [Console]::ReadKey($true)
+        $keyPressed = $true
+        
+        if ($IsRegistered -and ($key.Character -eq 'D' -or $key.Character -eq 'd')) {
+            Remove-StartupTask
+            Write-Host "`n[OK] Auto-startup DISABLED." -ForegroundColor Yellow
+            Start-Sleep -Seconds 1
+        }
+        elseif (-not $IsRegistered -and ($key.Character -eq 'E' -or $key.Character -eq 'e')) {
+            if (Add-StartupTask) {
+                Write-Host "`n[OK] Auto-startup ENABLED." -ForegroundColor Green
+            }
+            Start-Sleep -Seconds 1
+        }
+        break
+    }
+    Start-Sleep -Milliseconds 100
+}
+$stopwatch.Stop()
+
+
+# --- [UI Helper Functions] ---
+function Log-Header ($Title) { Write-Host "`n=== $Title ===" -ForegroundColor Cyan }
+function Log-Action ($Message) {
+    Write-Host "   [*] $Message " -NoNewline -ForegroundColor Gray
+    $Pad = 40 - $Message.Length
+    if ($Pad -gt 0) { Write-Host (" " * $Pad) -NoNewline }
+    Write-Host "... " -NoNewline -ForegroundColor DarkGray
+}
+function Log-Result ($Status, $Detail = "") {
+    if ($Status -eq "OK") { Write-Host "[OK]" -ForegroundColor Green } else { Write-Host "[FAIL]" -ForegroundColor Red }
+    if ($Detail) { Write-Host "       > $Detail" -ForegroundColor DarkGray }
+}
+function Pause-Script {
+    Write-Host "`n------------------------------------------------"
+    Read-Host "Press ENTER to exit..."
+}
+
+try {
+    # ==========================================
+    # Phase 1: System Initialization
+    # ==========================================
+    Log-Header "System Initialization (v10.1)"
+
+    # 1. Workspace
+    Log-Action "Checking Workspace"
+    if (-not (Test-Path $WorkDir)) { 
+        New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null 
+        Log-Result "OK" "Created: $WorkDir"
+    }
+    else { Log-Result "OK" "Path: $WorkDir" }
+    Set-Location $WorkDir
+
+    # 2. GAS URL
+    Log-Action "Loading GAS Web App URL"
+    $GasUrlFile = "gas_url.txt"
+    if (Test-Path $GasUrlFile) {
+        $GasWebAppUrl = (Get-Content $GasUrlFile -Raw).Trim()
+        Log-Result "OK" "Loaded"
+    }
+    else {
+        Write-Host "`n   [!] Config file not found." -ForegroundColor Yellow
+        $GasWebAppUrl = Read-Host "   >>> Please paste your GAS URL"
+        if ([string]::IsNullOrWhiteSpace($GasWebAppUrl)) { throw "URL cannot be empty." }
+        $GasWebAppUrl.Trim() | Out-File -FilePath $GasUrlFile -Encoding utf8
+        Log-Result "OK" "Saved"
+    }
+
+    # 3. Secret Token
+    Log-Action "Verifying Secret Token"
+    $SecretFile = "secret.txt"
+    if (-not (Test-Path $SecretFile)) {
+        [Guid]::NewGuid().ToString("N") | Out-File -FilePath $SecretFile -Encoding utf8
+        Log-Result "OK" "Generated New Token"
+    }
+    else {
+        Log-Result "OK" "Loaded Existing Token"
+    }
+    $RandomToken = (Get-Content $SecretFile -Raw).Trim()
+
+    # 3.5. Discord Token (Optional but Recommended)
+    Log-Action "Verifying Discord Token"
+    $DiscordFile = "discord_token.txt"
+    if (Test-Path $DiscordFile) {
+        $DiscordToken = (Get-Content $DiscordFile -Raw).Trim()
+        Log-Result "OK" "Loaded"
+    }
+    else {
+        # Optional: Ask user
+        Write-Host "`n   [?] Enable Discord Bot?" -ForegroundColor Yellow
+        $EnableDiscord = Read-Host "   >>> Paste Token to enable, or ENTER to skip"
+        if (-not [string]::IsNullOrWhiteSpace($EnableDiscord)) {
+            $EnableDiscord.Trim() | Out-File -FilePath $DiscordFile -Encoding utf8
+            $DiscordToken = $EnableDiscord.Trim()
+            Log-Result "OK" "Saved"
+        }
+        else {
+            $DiscordToken = ""
+            Log-Result "OK" "Skipped"
+        }
+    }
+
+    # 4. Generate index.js (With Restart Logic)
+    Log-Action "Generating Proxy Core (index.js)"
+    $indexJsContent = @'
+const express = require('express');
+const { createProxyMiddleware } = require('http-proxy-middleware');
+const fs = require('fs');
+const { Client, GatewayIntentBits, REST, Routes } = require('discord.js');
+
+const app = express();
+app.use(express.json());
+
+// --- Configuration ---
+const GAS_URL = "@@GAS_URL@@";
+const MY_SECRET = "@@SECRET@@";
+const DISCORD_TOKEN = "@@DISCORD_TOKEN@@";
+
+// --- Logger Utility ---
+app.use((req, res, next) => {
+    console.log('[INCOMING] ' + new Date().toLocaleTimeString() + ' | ' + req.method + ' ' + req.url);
+    next();
+});
+
+// --- Dynamic Proxy Logic ---
+// ... (Keep existing proxy logic if any) ...
+
+// --- Control API ---
+app.post('/restart', (req, res) => {
+    const auth = req.headers['x-proxy-auth'];
+    if (auth !== MY_SECRET) return res.status(403).send('Forbidden');
+    
+    console.log('[CONTROL] Remote Restart Signal Received.');
+    res.send({ status: 'success', message: 'Restarting local bridge...' });
+    setTimeout(() => fs.writeFileSync('.restart_flag', 'true'), 1000);
+});
+
+const PORT = 3000;
+app.listen(PORT, () => {
+    console.log('==========================================');
+    console.log('  SAP BRIDGE CORE RUNNING ON PORT ' + PORT);
+    console.log('==========================================');
+});
+
+// --- Discord Bot Core ---
+if (DISCORD_TOKEN && DISCORD_TOKEN !== 'PASTE_YOUR_DISCORD_TOKEN_HERE') {
+    const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+
+    client.once('ready', async () => {
+        console.log('[Discord] Gateway Active: ' + client.user.tag);
+        
+        // Register Slash Commands
+        const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
+        const commands = [
+            { name: 'report', description: 'Ĳ�o���㪺 SAP �Բ����i' },
+            { name: 'status', description: '����Y�ɸ겣���p�ַ� (��²��)' },
+            { name: 'sync', description: '�ߧYĲ�o���t�θ겣�l�B�P�B' },
+            { name: 'restart', description: '���ݭ��ҥ�����������' }
+        ];
+
+        try {
+            await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+            console.log('[Discord] All Commands Registered.');
+        } catch (error) {
+            console.error('[Discord] Register Failed:', error);
+        }
+    });
+
+    client.on('interactionCreate', async interaction => {
+        if (!interaction.isChatInputCommand()) return;
+        
+        const commandName = interaction.commandName;
+        console.log(`[COMMAND] /${commandName} received from ${interaction.user.tag}`);
+
+        // Handle Internal Restart immediately
+        if (commandName === 'restart') {
+            await interaction.reply({ content: "? **���ҫ��O�w����**\n> Bridge �N�b 3 ���������æ۰ʱҰ�...", ephemeral: false });
+            setTimeout(() => fs.writeFileSync('.restart_flag', 'true'), 2000);
+            return;
+        }
+
+        // Defer reply for GAS bound commands to prevent 3s timeout
+        await interaction.deferReply({ ephemeral: false });
+
+        try {
+            let action = '';
+            if (commandName === 'report') action = 'trigger_report';
+            if (commandName === 'status') action = 'get_quick_status';
+            if (commandName === 'sync') action = 'trigger_balance_update';
+
+            const payload = {
+                action: action,
+                password: MY_SECRET
+            };
+            
+            const response = await fetch(GAS_URL, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                redirect: 'follow',
+                body: JSON.stringify(payload)
+            });
+            
+            const result = await response.json();
+            
+            if(result.status === 'success') {
+                if (commandName === 'status') {
+                    // Optimized Status Embed
+                    const d = result.data;
+                    const ltvColor = d.ltv > 0.4 ? 15158332 : (d.ltv > 0.3 ? 16776960 : 3066993);
+                    
+                    const embed = {
+                        title: "? SAP �Y�ɪ��A�ַ�",
+                        color: ltvColor,
+                        fields: [
+                            { name: "? �b������� (Net Worth)", value: "`TWD " + Math.round(d.netWorth).toLocaleString() + "`", inline: false },
+                            { name: "?? �` LTV", value: (d.ltv * 100).toFixed(1) + "%", inline: true },
+                            { name: "? Crypto LTV", value: (d.cryptoLtv * 100).toFixed(1) + "%", inline: true },
+                            { name: "? BTC ����", value: "$" + d.btcPrice.toLocaleString(), inline: true },
+                            { name: "? Runway (��)", value: d.runway.toFixed(1), inline: true }
+                        ],
+                        footer: { text: "Version: " + d.version + " | Updated: " + new Date(d.timestamp).toLocaleTimeString() }
+                    };
+                    await interaction.editReply({ embeds: [embed] });
+                } else {
+                    await interaction.editReply({ content: "? **���O���榨�\!**\n> " + (result.message || result.msg) });
+                }
+            } else {
+                await interaction.editReply({ content: "? **GAS ���~**: " + (result.msg || result.message) });
+            }
+               
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({ content: "? **�h�D�q�T���~**: " + error.message });
+        }
+    });
+
+    client.login(DISCORD_TOKEN).catch(e => console.error('[Discord] Login Failed:', e.message));
+} else {
+    console.log('[Discord] Bot skipped (No Token provided).');
+}
+  next();
+});
+
+// [Auth]
+app.use((req, res, next) => {
+  const token = req.headers['x-proxy-auth'];
+  if (token !== MY_SECRET) {
+    console.log('[BLOCK] Unauthorized access (Wrong Password)');
+    return res.status(403).send('Access Denied');
+  }
+  next();
+});
+
+// [Control Endpoints]
+app.post('/restart', (req, res) => {
+    console.log('[COMMAND] Force Restart Triggered from GAS!');
+    fs.writeFileSync('.restart_flag', 'true');
+    res.send({status: 'success', msg: 'Restart sequence initiated...'});
+});
+
+app.get('/', (req, res) => res.send('Bridge Active'));
+
+// [Proxy]
+const apiProxy = createProxyMiddleware({
+  target: 'https://api.binance.com',
+  changeOrigin: true,
+  pathRewrite: { '^/': '/' },
+  
+  onProxyReq: (proxyReq, req, res) => {
+    proxyReq.removeHeader('x-proxy-auth');
+    proxyReq.removeHeader('x-forwarded-for');
+    proxyReq.removeHeader('via');
+    console.log('[--> PROXY] Forwarding to Binance...');
+  },
+
+  onProxyRes: (proxyRes, req, res) => {
+    const statusTag = proxyRes.statusCode >= 400 ? '[ERR]' : '[OK] ';
+    console.log('[<-- BINANCE] ' + statusTag + ' Status: ' + proxyRes.statusCode);
+  },
+
+  onError: (err, req, res) => {
+    console.error('[ERROR] Proxy Connection Failed: ' + err.message);
+    res.status(500).send('Proxy Error: ' + err.message);
+  }
+});
+
+app.use('/', apiProxy);
+app.listen(8080, () => console.log('Proxy Server Ready on Port 8080'));
+"@
+    try {
+        $indexJsContent | Out-File -Encoding utf8 "index.js"
+        Log-Result "OK"
+    }
+    catch {
+        Log-Result "FAIL" $_
+        throw $_
+    }
+
+    # 5. NPM Check
+    Log-Action "Checking NPM Dependencies"
+    if (-not (Test-Path "node_modules") -or -not (Test-Path "node_modules/discord.js")) { 
+        Write-Host "`n       > Installing modules..." -ForegroundColor DarkGray
+        cmd /c "npm install express http-proxy-middleware discord.js" | Out-Null
+        if (Test-Path "node_modules/discord.js") { Log-Result "OK" } else { throw "NPM install failed" }
+    }
+    else {
+        Log-Result "OK" "Modules ready"
+    }
+
+    # ==========================================
+    # Phase 2: Main Loop
+    # ==========================================
+    
+    while ($true) {
+        try {
+            Log-Header "Starting Cycle: $(Get-Date -Format 'HH:mm:ss')"
+
+            # A. Cleanup
+            if (Test-Path ".restart_flag") { Remove-Item ".restart_flag" -ErrorAction SilentlyContinue }
+            
+            Log-Action "Cleanup Old Processes"
+            $TargetProcesses = @("node", "cloudflared")
+            $KillCount = 0
+            foreach ($ProcName in $TargetProcesses) {
+                $RunningProcs = Get-Process -Name $ProcName -ErrorAction SilentlyContinue
+                if ($RunningProcs) { 
+                    $RunningProcs | Stop-Process -Force -ErrorAction SilentlyContinue 
+                    $KillCount++
+                }
+            }
+            Start-Sleep -Seconds 2
+            Log-Result "OK" "Terminated $KillCount processes"
+
+            # B. Start Node
+            Log-Action "Starting Node.js Proxy"
+            Start-Process node -ArgumentList "index.js" -NoNewWindow 
+            Start-Sleep -Seconds 3
+            if (Get-Process node -ErrorAction SilentlyContinue) {
+                Log-Result "OK" "PID: $((Get-Process node).Id)"
+            }
+            else {
+                Log-Result "FAIL"
+                throw "Node.js failed to start."
+            }
+
+            # C. Start Tunnel
+            Log-Action "Starting Cloudflare Tunnel"
+            if (Test-Path "tunnel.log") { Remove-Item "tunnel.log" }
+            Start-Process cloudflared -ArgumentList "tunnel --url http://localhost:8080 --logfile tunnel.log" -WindowStyle Hidden
+            
+            $TunnelUrl = $null
+            for ($i = 0; $i -lt 30; $i++) {
+                if (Test-Path "tunnel.log") {
+                    $LogContent = Get-Content "tunnel.log" -Raw -ErrorAction SilentlyContinue
+                    if ($LogContent -match "https://[a-z0-9-]+\.trycloudflare\.com") {
+                        $TunnelUrl = $matches[0]
+                        break
+                    }
+                }
+                Start-Sleep -Seconds 1
+            }
+
+            if ($TunnelUrl) {
+                Log-Result "OK"
+                Write-Host "       > URL: $TunnelUrl" -ForegroundColor Green
+            }
+            else {
+                Log-Result "FAIL" "Timeout"
+                throw "Tunnel URL not found"
+            }
+
+            # D. Sync GAS
+            Log-Action "Syncing to Google Apps Script"
+            $Payload = @{ action = "update_tunnel_url"; url = $TunnelUrl; password = $RandomToken } | ConvertTo-Json
+            $Response = Invoke-RestMethod -Uri $GasWebAppUrl -Method Post -Body $Payload -ContentType "application/json"
+            
+            if ($Response.status -eq "success") { Log-Result "OK" } else { Log-Result "FAIL" $Response.msg }
+
+            # E. Countdown & Dual Watchdog
+            $HoursToWait = 4
+            $TotalMinutes = $HoursToWait * 60
+            $NextRun = (Get-Date).AddMinutes($TotalMinutes)
+            
+            $autoStatus = if (Check-StartupTask) { "ON" } else { "OFF" }
+            Log-Header "System Active | R=Restart | A=Toggle AutoStart ($autoStatus)"
+            Write-Host "Next Auto-Restart: $($NextRun.ToString('HH:mm:ss'))" -ForegroundColor Magenta
+            
+            $ForceRestart = $false
+            for ($i = 0; $i -lt $TotalMinutes; $i++) {
+                $Remaining = $TotalMinutes - $i
+                $Percent = [math]::Round(($i / $TotalMinutes) * 100)
+                Write-Progress -Activity "Binance Bridge" -Status "Waiting... (Press 'R' to Restart)" -PercentComplete $Percent
+                
+                # High-frequency check loop (runs for 60 seconds)
+                # Checking every 100ms for responsiveness
+                for ($k = 0; $k -lt 600; $k++) {
+                    
+                    # 1. Check Remote Signal (File)
+                    if (Test-Path ".restart_flag") {
+                        $ForceRestart = $true
+                        break
+                    }
+
+                    # 2. Check Local Signal (Keyboard)
+                    if ([Console]::KeyAvailable) {
+                        $KeyInfo = [Console]::ReadKey($true) # True = hide input
+                        if ($KeyInfo.Key -eq "R") {
+                            Write-Host "`n[User Input] Manual Restart Detected!" -ForegroundColor Yellow
+                            $ForceRestart = $true
+                            break
+                        }
+                        elseif ($KeyInfo.Key -eq "A") {
+                            # Toggle Auto-Startup
+                            if (Check-StartupTask) {
+                                Remove-StartupTask
+                                Write-Host "`n[Auto-Startup] DISABLED" -ForegroundColor Yellow
+                            }
+                            else {
+                                if (Add-StartupTask) {
+                                    Write-Host "`n[Auto-Startup] ENABLED" -ForegroundColor Green
+                                }
+                            }
+                        }
+                    }
+
+                    Start-Sleep -Milliseconds 100
+                }
+
+                if ($ForceRestart) { break }
+            }
+            Write-Progress -Activity "Binance Bridge" -Completed
+
+            if ($ForceRestart) {
+                Write-Host "`n[!] Rebooting System..." -ForegroundColor Yellow
+            }
+
+        }
+        catch {
+            Write-Host "`n[!] Cycle Error: $_" -ForegroundColor Red
+            Write-Host "Retrying in 1 minute..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 60
+        }
+    }
+
+}
+catch {
+    Write-Host "`n[FATAL ERROR] $_" -ForegroundColor Red
+    Pause-Script
+}
