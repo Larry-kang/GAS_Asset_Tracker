@@ -191,7 +191,7 @@ function handleQuickSummary(data) {
   const summary = {
     netWorth: ctx.netEntityValue,
     ltv: ctx.indicators.ltv,
-    cryptoLtv: ctx.indicators.cryptoLtv,
+    cryptoLtv: ctx.indicators.cryptoLTV,
     btcPrice: ctx.market.btcPrice,
     runway: ctx.indicators.survivalRunway,
     timestamp: new Date().toISOString(),
