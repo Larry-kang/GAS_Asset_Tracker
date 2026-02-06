@@ -70,6 +70,48 @@ function getOkxBalance() {
       if (loanRes.status) SyncManager.log("WARNING", `Fetch Loans Failed: ${loanRes.status}`, MODULE_NAME);
     }
 
+    // D. Positions (Futures/Swap)
+    const posRes = fetchOkxPositions_(baseUrl, apiKey, apiSecret, apiPassphrase);
+    if (posRes.success && posRes.data) {
+      posRes.data.forEach(item => {
+        assetList.push({
+          ccy: item.ccy,
+          amt: item.amt,
+          type: 'Positions',
+          status: 'Position',
+          meta: `${item.instId} (${item.mgnMode})`
+        });
+      });
+    } else if (posRes.status) {
+      SyncManager.log("WARNING", `Fetch Positions Failed: ${posRes.status}`, MODULE_NAME);
+    }
+
+    // E. Funding Assets
+    const fundRes = fetchOkxAssets_(baseUrl, apiKey, apiSecret, apiPassphrase);
+    if (fundRes.success && fundRes.data) {
+      fundRes.data.forEach(item => {
+        assetList.push({ ccy: item.ccy, amt: item.amt, type: 'Funding', status: 'Available' });
+      });
+    } else if (fundRes.status) {
+      SyncManager.log("WARNING", `Fetch Funding Failed: ${fundRes.status}`, MODULE_NAME);
+    }
+
+    // F. Structured Products (Shark Fin, etc.)
+    const structRes = fetchOkxStructured_(baseUrl, apiKey, apiSecret, apiPassphrase);
+    if (structRes.success && structRes.data) {
+      structRes.data.forEach(item => {
+        assetList.push({
+          ccy: item.ccy,
+          amt: item.amt,
+          type: 'Structured',
+          status: 'Active',
+          meta: `Structured ID: ${item.ordId}`
+        });
+      });
+    } else if (structRes.status) {
+      SyncManager.log("WARNING", `Fetch Structured Failed: ${structRes.status}`, MODULE_NAME);
+    }
+
     // --- Update Ledger ---
     SyncManager.log("INFO", `Collected ${assetList.length} asset entries. Updating Ledger...`, MODULE_NAME);
     SyncManager.updateUnifiedLedger(ss, "OKX", assetList);
@@ -141,6 +183,62 @@ function fetchOkxLoans_(baseUrl, apiKey, apiSecret, apiPassphrase) {
               currentLTV: parseFloat(ltv)
             });
           });
+        }
+      });
+    }
+    return { success: true, data: rawList };
+  }
+  return { success: false, status: `Code: ${res.code}, Msg: ${res.msg}` };
+}
+
+function fetchOkxPositions_(baseUrl, apiKey, apiSecret, apiPassphrase) {
+  const res = fetchOkxApi_(baseUrl, '/api/v5/account/positions', {}, apiKey, apiSecret, apiPassphrase);
+  if (res.code === "0") {
+    const rawList = [];
+    if (res.data) {
+      res.data.forEach(p => {
+        const pos = parseFloat(p.pos);
+        if (pos !== 0) {
+          rawList.push({
+            ccy: p.ccy || p.instId.split('-')[0],
+            amt: pos,
+            instId: p.instId,
+            mgnMode: p.mgnMode
+          });
+        }
+      });
+    }
+    return { success: true, data: rawList };
+  }
+  return { success: false, status: `Code: ${res.code}, Msg: ${res.msg}` };
+}
+
+function fetchOkxAssets_(baseUrl, apiKey, apiSecret, apiPassphrase) {
+  const res = fetchOkxApi_(baseUrl, '/api/v5/asset/balances', {}, apiKey, apiSecret, apiPassphrase);
+  if (res.code === "0") {
+    const rawList = [];
+    if (res.data) {
+      res.data.forEach(b => {
+        const bal = parseFloat(b.bal);
+        if (bal > 0) {
+          rawList.push({ ccy: b.ccy, amt: bal });
+        }
+      });
+    }
+    return { success: true, data: rawList };
+  }
+  return { success: false, status: `Code: ${res.code}, Msg: ${res.msg}` };
+}
+
+function fetchOkxStructured_(baseUrl, apiKey, apiSecret, apiPassphrase) {
+  const res = fetchOkxApi_(baseUrl, '/api/v5/finance/staking-defi/orders-active', {}, apiKey, apiSecret, apiPassphrase);
+  if (res.code === "0") {
+    const rawList = [];
+    if (res.data) {
+      res.data.forEach(o => {
+        const amt = parseFloat(o.amt);
+        if (amt > 0) {
+          rawList.push({ ccy: o.ccy, amt: amt, ordId: o.ordId });
         }
       });
     }
