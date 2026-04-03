@@ -23,6 +23,10 @@ const Credentials = {
             creds.apiPassphrase = Settings.get('OKX_API_PASSPHRASE');
         }
 
+        if (exchange === 'BITGET') {
+            creds.apiPassphrase = Settings.get('BITGET_API_PASSPHRASE');
+        }
+
         if (exchange === 'BINANCE') {
             creds.tunnelUrl = Settings.get('TUNNEL_URL');
             creds.proxyPassword = Settings.get('PROXY_PASSWORD');

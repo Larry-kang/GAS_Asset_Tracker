@@ -105,6 +105,15 @@ function syncAllAssets_() {
         }
     } catch (e) { console.error("OKX Sync Failed", e); }
 
+    // Bitget
+    try {
+        if (typeof getBitgetBalance === 'function') {
+            getBitgetBalance();
+        } else {
+            console.warn("getBitgetBalance not found");
+        }
+    } catch (e) { console.error("Bitget Sync Failed", e); }
+
     // Pionex
     try {
         if (typeof getPionexBalance === 'function') getPionexBalance();
