@@ -29,6 +29,7 @@ function onOpen() {
   const dataMenu = ui.createMenu('進階同步工具')
     .addItem('同步 - 幣安餘額', 'getBinanceBalance')
     .addItem('同步 - OKX 餘額', 'getOkxBalance')
+    .addItem('同步 - Bitget 餘額', 'getBitgetBalance')
     .addItem('同步 - 幣託餘額', 'getBitoProBalance')
     .addItem('同步 - 派網餘額', 'getPionexBalance')
     .addSeparator()
