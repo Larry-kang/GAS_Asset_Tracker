@@ -1,7 +1,3 @@
-
+# Common project ignores
 /node_modules
 *.log
-
-
-
-
