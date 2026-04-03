@@ -172,7 +172,9 @@ function runSafeLedgerSyncTestSuite() {
     'testSyncManagerCommitRequiredFailure',
     'testSyncManagerOptionalFailure',
     'testSyncManagerLockGuard',
-    'testSyncStatusWrite'
+    'testSyncStatusWrite',
+    'testStaleAttemptGuard',
+    'testStandaloneStatusWriteUsesLock'
   ];
 
   testFns.forEach(name => {
@@ -209,8 +211,17 @@ function runSafeLedgerSyncTestSuite() {
     });
   }
 
+  const failedResults = results.filter(r => r.status !== 'passed');
+  if (failedResults.length > 0) {
+    const summary = failedResults
+      .map(r => `${r.name}: ${r.error}`)
+      .join(' | ')
+      .slice(0, 1000);
+    throw new Error(`SafeLedgerTestSuite failed (${failedResults.length}/${results.length}): ${summary}`);
+  }
+
   return {
-    status: results.every(r => r.status === 'passed') ? 'success' : 'partial',
+    status: 'success',
     results: results
   };
 }
@@ -368,6 +379,103 @@ function testSyncStatusWrite() {
       message: 'Sync status persistence test passed.',
       syncStatus: statusRows[0]
     };
+  });
+}
+
+function testStaleAttemptGuard() {
+  return SafeLedgerTestHarness.withSandbox_(function (context) {
+    setupSafeLedgerSyncTestEnvironment();
+    const ss = context.ss;
+
+    const newerResult = SyncManager.createResult('Bitget');
+    newerResult.startedAt = '2026-04-03T08:00:10.000Z';
+    newerResult.assets.push({ ccy: 'USDT', amt: 100, type: 'Spot', status: 'Available', meta: 'newer attempt' });
+    SyncManager.registerSourceCheck(newerResult, { name: 'Spot', required: true, success: true, rows: 1 });
+    const newerCommitted = SyncManager.commitExchangeResult(ss, 'Test_SafeLedgerSync', newerResult);
+    assertSafeLedgerTest_(newerCommitted === true, 'Expected newer attempt to commit successfully.');
+
+    const olderResult = SyncManager.createResult('Bitget');
+    olderResult.startedAt = '2026-04-03T08:00:00.000Z';
+    olderResult.assets.push({ ccy: 'BTC', amt: 1, type: 'Spot', status: 'Available', meta: 'older attempt' });
+    SyncManager.registerSourceCheck(olderResult, { name: 'Spot', required: true, success: true, rows: 1 });
+    const olderCommitted = SyncManager.commitExchangeResult(ss, 'Test_SafeLedgerSync', olderResult);
+    assertSafeLedgerTest_(olderCommitted === false, 'Expected stale attempt to be skipped.');
+
+    const ledgerRows = getSafeLedgerRows_('Unified Assets').filter(row => row[0] === 'Bitget');
+    assertSafeLedgerTest_(ledgerRows.length === 1, 'Expected only newer Bitget snapshot to remain.');
+    assertSafeLedgerTest_(ledgerRows[0][1] === 'USDT', 'Expected newer Bitget snapshot to remain in ledger.');
+
+    const statusRows = getSafeLedgerRows_('Sync_Status').filter(row => row[0] === 'Bitget');
+    const expectedAttemptAt = SyncManager.formatStatusTimestamp_(newerResult.startedAt);
+    assertSafeLedgerTest_(statusRows.length === 1, 'Expected one Sync_Status row for Bitget.');
+    assertSafeLedgerTest_(
+      SyncManager.normalizeStatusTimestampValue_(statusRows[0][1]) === expectedAttemptAt,
+      'Expected newer attempt timestamp to remain recorded.'
+    );
+
+    return {
+      status: 'success',
+      message: 'Stale attempt guard test passed.',
+      syncStatus: statusRows[0]
+    };
+  });
+}
+
+function testStandaloneStatusWriteUsesLock() {
+  return SafeLedgerTestHarness.withSandbox_(function (context) {
+    setupSafeLedgerSyncTestEnvironment();
+    const ss = context.ss;
+    const originalLockFn = SyncManager.tryAcquireCommitLock_;
+    let acquired = 0;
+    let released = 0;
+
+    try {
+      SyncManager.tryAcquireCommitLock_ = function () {
+        acquired++;
+        return {
+          releaseLock: function () {
+            released++;
+          }
+        };
+      };
+
+      const newer = SyncManager.createResult('Bitget');
+      newer.startedAt = '2026-04-03T08:00:10.000Z';
+      newer.finishedAt = '2026-04-03T08:00:12.000Z';
+      newer.status = 'complete';
+      newer.rowCount = 1;
+      newer.assets.push({ ccy: 'USDT', amt: 100, type: 'Spot', status: 'Available', meta: 'newer status' });
+      const newerWrote = SyncManager.recordSyncStatus(ss, newer);
+      assertSafeLedgerTest_(newerWrote === true, 'Expected standalone status write to succeed.');
+
+      const olderFailure = SyncManager.createResult('Bitget');
+      olderFailure.startedAt = '2026-04-03T08:00:00.000Z';
+      olderFailure.finishedAt = '2026-04-03T08:00:01.000Z';
+      olderFailure.status = 'failed';
+      olderFailure.errors.push('Older failed attempt');
+      const olderWrote = SyncManager.recordSyncStatus(ss, olderFailure);
+      assertSafeLedgerTest_(olderWrote === false, 'Expected stale standalone status write to be skipped.');
+
+      assertSafeLedgerTest_(acquired === 2, 'Expected standalone status writes to acquire the shared lock.');
+      assertSafeLedgerTest_(released === 2, 'Expected standalone status writes to release the shared lock.');
+
+      const statusRows = getSafeLedgerRows_('Sync_Status').filter(row => row[0] === 'Bitget');
+      const expectedAttemptAt = SyncManager.formatStatusTimestamp_(newer.startedAt);
+      assertSafeLedgerTest_(statusRows.length === 1, 'Expected one Sync_Status row after standalone writes.');
+      assertSafeLedgerTest_(
+        SyncManager.normalizeStatusTimestampValue_(statusRows[0][1]) === expectedAttemptAt,
+        'Expected newer standalone attempt timestamp to remain recorded.'
+      );
+      assertSafeLedgerTest_(String(statusRows[0][3]).toUpperCase() === 'COMPLETE', 'Expected COMPLETE status to remain after stale failed write.');
+
+      return {
+        status: 'success',
+        message: 'Standalone status write lock test passed.',
+        syncStatus: statusRows[0]
+      };
+    } finally {
+      SyncManager.tryAcquireCommitLock_ = originalLockFn;
+    }
   });
 }
 

@@ -19,8 +19,7 @@ function getBinanceBalance() {
         success: false,
         message: 'Missing BINANCE_API_KEY or SECRET'
       });
-      SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
-      return;
+      return SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
     }
     if (!baseUrl || !proxyPassword) {
       SyncManager.registerSourceCheck(result, {
@@ -29,8 +28,7 @@ function getBinanceBalance() {
         success: false,
         message: 'Missing Tunnel URL or Proxy Password'
       });
-      SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
-      return;
+      return SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
     }
 
     // A. Spot
@@ -193,7 +191,7 @@ function getBinanceBalance() {
     }
 
     SyncManager.log("INFO", `Collected ${result.assets.length} asset entries from Binance.`, MODULE_NAME);
-    SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
+    return SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
 
     // Clean up old sheets if needed (manual cleanup recommended later)
   });

@@ -20,8 +20,7 @@ function getOkxBalance() {
         success: false,
         message: 'Missing OKX Keys'
       });
-      SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
-      return;
+      return SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
     }
 
     // A. Account (Spot + Funding + Margin Debt)
@@ -164,7 +163,7 @@ function getOkxBalance() {
     }
 
     SyncManager.log("INFO", `Collected ${result.assets.length} asset entries from OKX.`, MODULE_NAME);
-    SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
+    return SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
   });
 }
 

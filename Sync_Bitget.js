@@ -20,8 +20,7 @@ function getBitgetBalance() {
         success: false,
         message: 'Missing BITGET_API_KEY / BITGET_API_SECRET / BITGET_API_PASSPHRASE'
       });
-      SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
-      return;
+      return SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
     }
 
     // A. Spot
@@ -177,7 +176,7 @@ function getBitgetBalance() {
     }
 
     SyncManager.log("INFO", `Collected ${result.assets.length} asset entries from Bitget.`, MODULE_NAME);
-    SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
+    return SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
   });
 }
 

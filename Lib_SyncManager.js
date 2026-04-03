@@ -27,8 +27,13 @@ const SyncManager = {
     run: function (moduleName, taskFn) {
         try {
             this.log("INFO", `[${moduleName}] Starting Sync...`, moduleName);
-            taskFn();
+            const taskResult = taskFn();
+            if (taskResult === false) {
+                this.log("WARNING", `[${moduleName}] Sync Finished Without Commit`, moduleName);
+                return false;
+            }
             this.log("INFO", `[${moduleName}] Sync Finished`, moduleName);
+            return taskResult;
         } catch (e) {
             this.log("ERROR", `Execution Crashed: ${e.message}`, moduleName);
             try { SpreadsheetApp.getActiveSpreadsheet().toast(`${moduleName} Error: ${e.message}`); } catch (ignore) { }
@@ -108,6 +113,69 @@ const SyncManager = {
     },
 
     /**
+     * Formats timestamps for Sync_Status comparison/storage.
+     * @param {string|Date} value
+     * @returns {string}
+     */
+    formatStatusTimestamp_: function (value) {
+        const date = value ? new Date(value) : new Date();
+        return Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss.SSS");
+    },
+
+    /**
+     * Normalizes status timestamp values read from Sheets.
+     * Sheet cells may come back as Date objects even when strings were written.
+     * @param {string|Date|*} value
+     * @returns {string}
+     */
+    normalizeStatusTimestampValue_: function (value) {
+        if (!value) return "";
+
+        if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) {
+            return this.formatStatusTimestamp_(value);
+        }
+
+        const text = String(value).trim();
+        if (!text) return "";
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}$/.test(text)) return text;
+
+        const parsed = new Date(text);
+        return isNaN(parsed.getTime()) ? text : this.formatStatusTimestamp_(parsed);
+    },
+
+    /**
+     * Returns the current Sync_Status row for one exchange, if present.
+     * @param {SpreadsheetApp.Spreadsheet} ss
+     * @param {string} exchange
+     * @returns {{sheet: GoogleAppsScript.Spreadsheet.Sheet|null, rowIndex: number, row: Array|null}}
+     */
+    getSyncStatusRecord_: function (ss, exchange) {
+        const sheet = ss.getSheetByName(this.STATUS_SHEET_NAME);
+        if (!sheet) return { sheet: null, rowIndex: -1, row: null };
+
+        const lastRow = sheet.getLastRow();
+        if (lastRow <= 1) return { sheet: sheet, rowIndex: -1, row: null };
+
+        const existingData = sheet.getRange(2, 1, lastRow - 1, this.STATUS_HEADERS.length).getValues();
+        const rowIndex = existingData.findIndex(row => row[0] === exchange);
+        return {
+            sheet: sheet,
+            rowIndex: rowIndex,
+            row: rowIndex >= 0 ? existingData[rowIndex] : null
+        };
+    },
+
+    /**
+     * Determines whether the incoming attempt started before the currently recorded one.
+     * @param {string} incomingAttemptAt
+     * @param {string} recordedAttemptAt
+     * @returns {boolean}
+     */
+    isStaleAttempt_: function (incomingAttemptAt, recordedAttemptAt) {
+        return !!(recordedAttemptAt && incomingAttemptAt && incomingAttemptAt < recordedAttemptAt);
+    },
+
+    /**
      * Commit exchange assets only when the sync result is complete.
      * Failed syncs keep the previous ledger snapshot intact.
      * @param {SpreadsheetApp.Spreadsheet} ss
@@ -117,9 +185,10 @@ const SyncManager = {
      */
     commitExchangeResult: function (ss, moduleName, result) {
         this.finalizeResult(result);
+        const attemptAt = this.formatStatusTimestamp_(result.startedAt);
 
         if (result.status !== "complete") {
-            this.recordSyncStatus(ss, result);
+            this.recordSyncStatus(ss, result, { lockTimeoutMs: 10000 });
             this.log("ERROR", `[${result.exchange}] Commit aborted. ${this.buildStatusMessage_(result)}`, moduleName);
             return false;
         }
@@ -130,19 +199,30 @@ const SyncManager = {
             if (!lock) {
                 result.status = "locked";
                 result.errors.push("Unable to acquire script lock for ledger commit.");
-                this.recordSyncStatus(ss, result);
+                this.recordSyncStatus(ss, result, { lockTimeoutMs: 10000 });
                 this.log("ERROR", `[${result.exchange}] Commit skipped: script lock unavailable.`, moduleName);
                 return false;
             }
 
+            const currentStatus = this.getSyncStatusRecord_(ss, result.exchange);
+            const recordedAttemptAt = currentStatus.row
+                ? this.normalizeStatusTimestampValue_(currentStatus.row[1])
+                : "";
+            if (this.isStaleAttempt_(attemptAt, recordedAttemptAt)) {
+                result.status = "stale";
+                result.warnings.push(`Stale attempt skipped. Incoming attempt ${attemptAt} older than recorded ${recordedAttemptAt}.`);
+                this.log("WARNING", `[${result.exchange}] Commit skipped: stale attempt ${attemptAt} older than recorded ${recordedAttemptAt}.`, moduleName);
+                return false;
+            }
+
             this.updateUnifiedLedger(ss, result.exchange, result.assets);
-            this.recordSyncStatus(ss, result);
+            this.recordSyncStatus(ss, result, { lockAlreadyHeld: true });
             this.log("INFO", `[${result.exchange}] Commit completed. Rows: ${result.rowCount}`, moduleName);
             return true;
         } catch (e) {
             result.status = "failed";
             result.errors.push(`Ledger commit failed: ${e.message}`);
-            this.recordSyncStatus(ss, result);
+            this.recordSyncStatus(ss, result, { lockAlreadyHeld: !!lock, lockTimeoutMs: 10000 });
             this.log("ERROR", `[${result.exchange}] Ledger commit failed: ${e.message}`, moduleName);
             throw e;
         } finally {
@@ -243,41 +323,74 @@ const SyncManager = {
      * Records the latest sync attempt status by exchange.
      * @param {SpreadsheetApp.Spreadsheet} ss
      * @param {Object} result
+     * @param {Object=} options
      */
-    recordSyncStatus: function (ss, result) {
-        let sheet = ss.getSheetByName(this.STATUS_SHEET_NAME);
-        if (!sheet) {
-            sheet = ss.insertSheet(this.STATUS_SHEET_NAME);
-            sheet.getRange(1, 1, 1, this.STATUS_HEADERS.length).setValues([this.STATUS_HEADERS]);
-            sheet.getRange(1, 1, 1, this.STATUS_HEADERS.length).setFontWeight('bold').setBackground('#fff3e0');
-            sheet.setFrozenRows(1);
-        }
+    recordSyncStatus: function (ss, result, options) {
+        const opts = options || {};
+        const lockAlreadyHeld = !!opts.lockAlreadyHeld;
+        const lockTimeoutMs = opts.lockTimeoutMs || 5000;
+        let lock = null;
 
-        const lastRow = sheet.getLastRow();
-        let existingData = [];
-        if (lastRow > 1) {
-            existingData = sheet.getRange(2, 1, lastRow - 1, this.STATUS_HEADERS.length).getValues();
-        }
+        try {
+            if (!lockAlreadyHeld) {
+                lock = this.tryAcquireCommitLock_(lockTimeoutMs);
+                if (!lock) {
+                    this.log("WARNING", `[${result.exchange}] Sync_Status update skipped: unable to acquire script lock.`, "SyncManager");
+                    return false;
+                }
+            }
 
-        const rowIndex = existingData.findIndex(row => row[0] === result.exchange);
-        const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
-        const previousLastSuccess = rowIndex >= 0 ? existingData[rowIndex][2] : "";
-        const lastSuccess = result.status === "complete" ? now : previousLastSuccess;
+            let sheet = ss.getSheetByName(this.STATUS_SHEET_NAME);
+            if (!sheet) {
+                sheet = ss.insertSheet(this.STATUS_SHEET_NAME);
+                sheet.getRange(1, 1, 1, this.STATUS_HEADERS.length).setValues([this.STATUS_HEADERS]);
+                sheet.getRange(1, 1, 1, this.STATUS_HEADERS.length).setFontWeight('bold').setBackground('#fff3e0');
+                sheet.setFrozenRows(1);
+            }
 
-        const rowData = [[
-            result.exchange,
-            now,
-            lastSuccess || "",
-            String(result.status || "unknown").toUpperCase(),
-            result.rowCount || 0,
-            this.buildStatusMessage_(result),
-            now
-        ]];
+            const lastRow = sheet.getLastRow();
+            let existingData = [];
+            if (lastRow > 1) {
+                existingData = sheet.getRange(2, 1, lastRow - 1, this.STATUS_HEADERS.length).getValues();
+            }
 
-        if (rowIndex >= 0) {
-            sheet.getRange(rowIndex + 2, 1, 1, this.STATUS_HEADERS.length).setValues(rowData);
-        } else {
-            sheet.getRange(lastRow + 1, 1, 1, this.STATUS_HEADERS.length).setValues(rowData);
+            const rowIndex = existingData.findIndex(row => row[0] === result.exchange);
+            const attemptAt = this.formatStatusTimestamp_(result.startedAt || new Date());
+            const updatedAt = this.formatStatusTimestamp_(result.finishedAt || new Date());
+            const existingLastAttempt = rowIndex >= 0
+                ? this.normalizeStatusTimestampValue_(existingData[rowIndex][1])
+                : "";
+            if (this.isStaleAttempt_(attemptAt, existingLastAttempt)) {
+                this.log("WARNING", `[${result.exchange}] Sync_Status update skipped: stale attempt ${attemptAt} older than recorded ${existingLastAttempt}.`, "SyncManager");
+                return false;
+            }
+
+            const previousLastSuccess = rowIndex >= 0
+                ? this.normalizeStatusTimestampValue_(existingData[rowIndex][2])
+                : "";
+            const lastSuccess = result.status === "complete" ? updatedAt : previousLastSuccess;
+
+            const rowData = [[
+                result.exchange,
+                attemptAt,
+                lastSuccess || "",
+                String(result.status || "unknown").toUpperCase(),
+                result.rowCount || 0,
+                this.buildStatusMessage_(result),
+                updatedAt
+            ]];
+
+            if (rowIndex >= 0) {
+                sheet.getRange(rowIndex + 2, 1, 1, this.STATUS_HEADERS.length).setValues(rowData);
+            } else {
+                sheet.getRange(lastRow + 1, 1, 1, this.STATUS_HEADERS.length).setValues(rowData);
+            }
+            SpreadsheetApp.flush();
+            return true;
+        } finally {
+            if (lock) {
+                try { lock.releaseLock(); } catch (ignore) { }
+            }
         }
     },
 

@@ -20,8 +20,7 @@ function getBitoProBalance() {
         success: false,
         message: 'Missing BitoPro API Keys'
       });
-      SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
-      return;
+      return SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
     }
 
     const json = fetchBitoProApi_(baseUrl, '/accounts/balance', 'GET', {}, apiKey, apiSecret);
@@ -55,7 +54,7 @@ function getBitoProBalance() {
       });
     }
 
-    SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
+    return SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
   });
 }
 
