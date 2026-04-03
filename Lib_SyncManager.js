@@ -15,6 +15,8 @@ const SyncManager = {
     // Unified Ledger Configuration
     LEDGER_SHEET_NAME: "Unified Assets",
     LEDGER_HEADERS: ["Exchange", "Currency", "Amount", "Type", "Status", "Meta", "Updated"],
+    STATUS_SHEET_NAME: "Sync_Status",
+    STATUS_HEADERS: ["Exchange", "Last Attempt", "Last Success", "Status", "Rows", "Message", "Updated"],
 
     /**
      * [Core] Execution Wrapper
@@ -31,6 +33,123 @@ const SyncManager = {
             this.log("ERROR", `Execution Crashed: ${e.message}`, moduleName);
             try { SpreadsheetApp.getActiveSpreadsheet().toast(`${moduleName} Error: ${e.message}`); } catch (ignore) { }
             console.error(e);
+        }
+    },
+
+    /**
+     * Builds a standard exchange sync result envelope.
+     * @param {string} exchange
+     * @returns {Object}
+     */
+    createResult: function (exchange) {
+        return {
+            exchange: exchange,
+            status: "running",
+            assets: [],
+            requiredChecks: [],
+            optionalChecks: [],
+            errors: [],
+            warnings: [],
+            rowCount: 0,
+            startedAt: new Date().toISOString(),
+            finishedAt: ""
+        };
+    },
+
+    /**
+     * Registers the outcome of one data source fetch.
+     * @param {Object} result
+     * @param {Object} check
+     */
+    registerSourceCheck: function (result, check) {
+        const normalized = {
+            name: check.name || "Unknown",
+            required: check.required !== false,
+            success: !!check.success,
+            rows: check.rows || 0,
+            message: check.message || ""
+        };
+
+        const targetList = normalized.required ? result.requiredChecks : result.optionalChecks;
+        targetList.push(normalized);
+
+        if (!normalized.success) {
+            const msg = `${normalized.name}: ${normalized.message || "Failed"}`;
+            if (normalized.required) result.errors.push(msg);
+            else result.warnings.push(msg);
+        }
+    },
+
+    /**
+     * Finalizes the result state before commit/status logging.
+     * @param {Object} result
+     * @returns {Object}
+     */
+    finalizeResult: function (result) {
+        const requiredFailed = result.requiredChecks.some(check => !check.success);
+        result.rowCount = result.assets.length;
+        result.status = requiredFailed ? "failed" : "complete";
+        result.finishedAt = new Date().toISOString();
+        return result;
+    },
+
+    /**
+     * Attempts to acquire a script lock for ledger commit.
+     * Extracted into a helper so staging tests can override it.
+     * @param {number} timeoutMs
+     * @returns {GoogleAppsScript.Lock.Lock|null}
+     */
+    tryAcquireCommitLock_: function (timeoutMs = 5000) {
+        const lock = LockService.getScriptLock();
+        if (lock.tryLock(timeoutMs)) {
+            return lock;
+        }
+        return null;
+    },
+
+    /**
+     * Commit exchange assets only when the sync result is complete.
+     * Failed syncs keep the previous ledger snapshot intact.
+     * @param {SpreadsheetApp.Spreadsheet} ss
+     * @param {string} moduleName
+     * @param {Object} result
+     * @returns {boolean}
+     */
+    commitExchangeResult: function (ss, moduleName, result) {
+        this.finalizeResult(result);
+
+        if (result.status !== "complete") {
+            this.recordSyncStatus(ss, result);
+            this.log("ERROR", `[${result.exchange}] Commit aborted. ${this.buildStatusMessage_(result)}`, moduleName);
+            return false;
+        }
+
+        let lock = null;
+        try {
+            lock = this.tryAcquireCommitLock_();
+            if (!lock) {
+                result.status = "locked";
+                result.errors.push("Unable to acquire script lock for ledger commit.");
+                this.recordSyncStatus(ss, result);
+                this.log("ERROR", `[${result.exchange}] Commit skipped: script lock unavailable.`, moduleName);
+                return false;
+            }
+
+            this.updateUnifiedLedger(ss, result.exchange, result.assets);
+            this.recordSyncStatus(ss, result);
+            this.log("INFO", `[${result.exchange}] Commit completed. Rows: ${result.rowCount}`, moduleName);
+            return true;
+        } catch (e) {
+            result.status = "failed";
+            result.errors.push(`Ledger commit failed: ${e.message}`);
+            this.recordSyncStatus(ss, result);
+            this.log("ERROR", `[${result.exchange}] Ledger commit failed: ${e.message}`, moduleName);
+            throw e;
+        } finally {
+            try { SpreadsheetApp.flush(); } catch (ignore) { }
+            if (lock) {
+                try { lock.releaseLock(); } catch (ignore) { }
+            }
         }
     },
 
@@ -100,18 +219,81 @@ const SyncManager = {
             return a[1].localeCompare(b[1]);                    // Currency
         });
 
-        // 6. Write Back (Atomic Replace)
-        // Clear whole sheet content first (except header)
-        if (lastRow > 1) {
-            sheet.getRange(2, 1, lastRow - 1, this.LEDGER_HEADERS.length).clearContent();
-        }
+        // 6. Write Back (Safer Replace)
+        // Write the new final state first, then clear any stale tail rows.
+        const existingRowCount = lastRow > 1 ? (lastRow - 1) : 0;
 
         if (finalData.length > 0) {
             sheet.getRange(2, 1, finalData.length, this.LEDGER_HEADERS.length).setValues(finalData);
+            SpreadsheetApp.flush();
+        }
+
+        if (existingRowCount > finalData.length) {
+            sheet.getRange(2 + finalData.length, 1, existingRowCount - finalData.length, this.LEDGER_HEADERS.length).clearContent();
+        }
+
+        if (finalData.length > 0) {
             this.log("INFO", `[Ledger] Updated. Total Rows: ${finalData.length} (Added ${newRows.length} from ${targetExchange})`, "SyncManager");
         } else {
             this.log("WARNING", `[Ledger] Sheet is empty after update.`, "SyncManager");
         }
+    },
+
+    /**
+     * Records the latest sync attempt status by exchange.
+     * @param {SpreadsheetApp.Spreadsheet} ss
+     * @param {Object} result
+     */
+    recordSyncStatus: function (ss, result) {
+        let sheet = ss.getSheetByName(this.STATUS_SHEET_NAME);
+        if (!sheet) {
+            sheet = ss.insertSheet(this.STATUS_SHEET_NAME);
+            sheet.getRange(1, 1, 1, this.STATUS_HEADERS.length).setValues([this.STATUS_HEADERS]);
+            sheet.getRange(1, 1, 1, this.STATUS_HEADERS.length).setFontWeight('bold').setBackground('#fff3e0');
+            sheet.setFrozenRows(1);
+        }
+
+        const lastRow = sheet.getLastRow();
+        let existingData = [];
+        if (lastRow > 1) {
+            existingData = sheet.getRange(2, 1, lastRow - 1, this.STATUS_HEADERS.length).getValues();
+        }
+
+        const rowIndex = existingData.findIndex(row => row[0] === result.exchange);
+        const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+        const previousLastSuccess = rowIndex >= 0 ? existingData[rowIndex][2] : "";
+        const lastSuccess = result.status === "complete" ? now : previousLastSuccess;
+
+        const rowData = [[
+            result.exchange,
+            now,
+            lastSuccess || "",
+            String(result.status || "unknown").toUpperCase(),
+            result.rowCount || 0,
+            this.buildStatusMessage_(result),
+            now
+        ]];
+
+        if (rowIndex >= 0) {
+            sheet.getRange(rowIndex + 2, 1, 1, this.STATUS_HEADERS.length).setValues(rowData);
+        } else {
+            sheet.getRange(lastRow + 1, 1, 1, this.STATUS_HEADERS.length).setValues(rowData);
+        }
+    },
+
+    /**
+     * Builds a concise message for Sync_Status and logs.
+     * @param {Object} result
+     * @returns {string}
+     */
+    buildStatusMessage_: function (result) {
+        if (result.errors && result.errors.length > 0) {
+            return result.errors.join(" | ").slice(0, 500);
+        }
+        if (result.warnings && result.warnings.length > 0) {
+            return `Warnings: ${result.warnings.join(" | ").slice(0, 450)}`;
+        }
+        return `OK (${result.rowCount || 0} rows)`;
     },
 
     /**

@@ -8,113 +8,163 @@ function getOkxBalance() {
 
   SyncManager.run(MODULE_NAME, () => {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const result = SyncManager.createResult("OKX");
     const creds = Credentials.get('OKX');
     const { apiKey, apiSecret, apiPassphrase } = creds;
     const baseUrl = 'https://www.okx.com';
 
     if (!apiKey || !apiSecret || !apiPassphrase) {
-      SyncManager.log("ERROR", "Missing OKX Keys", MODULE_NAME);
+      SyncManager.registerSourceCheck(result, {
+        name: 'Credentials',
+        required: true,
+        success: false,
+        message: 'Missing OKX Keys'
+      });
+      SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
       return;
     }
 
-    const assetList = [];
-
     // A. Account (Spot + Funding + Margin Debt)
     const accRes = fetchOkxAccount_(baseUrl, apiKey, apiSecret, apiPassphrase);
+    let accountRows = 0;
     if (accRes.success && accRes.data) {
       accRes.data.forEach(item => {
-        if (item.avail > 0) assetList.push({ ccy: item.ccy, amt: item.avail, type: 'Spot', status: 'Available' });
-        if (item.frozen > 0) assetList.push({ ccy: item.ccy, amt: item.frozen, type: 'Spot', status: 'Frozen' });
-        if (item.liab > 0) assetList.push({ ccy: item.ccy, amt: -Math.abs(item.liab), type: 'Loan', status: 'Debt', meta: 'Margin Liability' });
+        if (item.avail > 0) { result.assets.push({ ccy: item.ccy, amt: item.avail, type: 'Spot', status: 'Available' }); accountRows++; }
+        if (item.frozen > 0) { result.assets.push({ ccy: item.ccy, amt: item.frozen, type: 'Spot', status: 'Frozen' }); accountRows++; }
+        if (item.liab > 0) { result.assets.push({ ccy: item.ccy, amt: -Math.abs(item.liab), type: 'Loan', status: 'Debt', meta: 'Margin Liability' }); accountRows++; }
       });
+      SyncManager.registerSourceCheck(result, { name: 'Account', required: true, success: true, rows: accountRows });
     } else {
-      SyncManager.log("ERROR", `Failed to fetch Account: ${accRes.status || 'Unknown Error'}`, MODULE_NAME);
+      SyncManager.registerSourceCheck(result, {
+        name: 'Account',
+        required: true,
+        success: false,
+        message: accRes.status || 'Unknown Error'
+      });
     }
 
     // B. Simple Earn
     const earnRes = fetchOkxEarn_(baseUrl, apiKey, apiSecret, apiPassphrase);
+    let earnRows = 0;
     if (earnRes.success && earnRes.data) {
       earnRes.data.forEach(item => {
-        assetList.push({ ccy: item.ccy, amt: item.amt, type: 'Earn', status: 'Staked' });
+        result.assets.push({ ccy: item.ccy, amt: item.amt, type: 'Earn', status: 'Staked' });
+        earnRows++;
       });
+      SyncManager.registerSourceCheck(result, { name: 'Earn', required: true, success: true, rows: earnRows });
     } else {
-      // Earn might be empty or permissions issue?
-      if (earnRes.status) SyncManager.log("WARNING", `Fetch Earn Failed: ${earnRes.status}`, MODULE_NAME);
+      SyncManager.registerSourceCheck(result, {
+        name: 'Earn',
+        required: true,
+        success: false,
+        message: earnRes.status || 'Unknown Error'
+      });
     }
 
     // C. Flexible Loan Orders
     const loanRes = fetchOkxLoans_(baseUrl, apiKey, apiSecret, apiPassphrase);
+    let loanRows = 0;
     if (loanRes.success && loanRes.data) {
       loanRes.data.forEach(item => {
         if (item.type === 'Debt') {
-          assetList.push({
+          result.assets.push({
             ccy: item.loanCoin,
             amt: -Math.abs(item.totalDebt),
             type: 'Loan',
             status: 'Debt',
             meta: `Flex Loan (LTV: ${(item.currentLTV * 100).toFixed(2)}%)`
           });
+          loanRows++;
         }
         else if (item.type === 'Collateral') {
-          assetList.push({
+          result.assets.push({
             ccy: item.collateralCoin,
             amt: item.collateralAmount,
             type: 'Loan',
             status: 'Collateral',
             meta: `Flex Collateral`
           });
+          loanRows++;
         }
       });
+      SyncManager.registerSourceCheck(result, { name: 'Loans', required: true, success: true, rows: loanRows });
     } else {
-      // Loan failing is common if no loans exist or permissions missing
-      if (loanRes.status) SyncManager.log("WARNING", `Fetch Loans Failed: ${loanRes.status}`, MODULE_NAME);
+      SyncManager.registerSourceCheck(result, {
+        name: 'Loans',
+        required: true,
+        success: false,
+        message: loanRes.status || 'Unknown Error'
+      });
     }
 
     // D. Positions (Futures/Swap)
     const posRes = fetchOkxPositions_(baseUrl, apiKey, apiSecret, apiPassphrase);
+    let positionRows = 0;
     if (posRes.success && posRes.data) {
       posRes.data.forEach(item => {
-        assetList.push({
+        result.assets.push({
           ccy: item.ccy,
           amt: item.amt,
           type: 'Positions',
           status: 'Position',
           meta: `${item.instId} (${item.mgnMode})`
         });
+        positionRows++;
       });
-    } else if (posRes.status) {
-      SyncManager.log("WARNING", `Fetch Positions Failed: ${posRes.status}`, MODULE_NAME);
+      SyncManager.registerSourceCheck(result, { name: 'Positions', required: false, success: true, rows: positionRows });
+    } else {
+      SyncManager.registerSourceCheck(result, {
+        name: 'Positions',
+        required: false,
+        success: false,
+        message: posRes.status || 'Unknown Error'
+      });
     }
 
     // E. Funding Assets
     const fundRes = fetchOkxAssets_(baseUrl, apiKey, apiSecret, apiPassphrase);
+    let fundingRows = 0;
     if (fundRes.success && fundRes.data) {
       fundRes.data.forEach(item => {
-        assetList.push({ ccy: item.ccy, amt: item.amt, type: 'Funding', status: 'Available' });
+        result.assets.push({ ccy: item.ccy, amt: item.amt, type: 'Funding', status: 'Available' });
+        fundingRows++;
       });
-    } else if (fundRes.status) {
-      SyncManager.log("WARNING", `Fetch Funding Failed: ${fundRes.status}`, MODULE_NAME);
+      SyncManager.registerSourceCheck(result, { name: 'Funding', required: true, success: true, rows: fundingRows });
+    } else {
+      SyncManager.registerSourceCheck(result, {
+        name: 'Funding',
+        required: true,
+        success: false,
+        message: fundRes.status || 'Unknown Error'
+      });
     }
 
     // F. Structured Products (Shark Fin, etc.)
     const structRes = fetchOkxStructured_(baseUrl, apiKey, apiSecret, apiPassphrase);
+    let structuredRows = 0;
     if (structRes.success && structRes.data) {
       structRes.data.forEach(item => {
-        assetList.push({
+        result.assets.push({
           ccy: item.ccy,
           amt: item.amt,
           type: 'Structured',
           status: 'Active',
           meta: `Structured ID: ${item.ordId}`
         });
+        structuredRows++;
       });
-    } else if (structRes.status) {
-      SyncManager.log("WARNING", `Fetch Structured Failed: ${structRes.status}`, MODULE_NAME);
+      SyncManager.registerSourceCheck(result, { name: 'Structured', required: false, success: true, rows: structuredRows });
+    } else {
+      SyncManager.registerSourceCheck(result, {
+        name: 'Structured',
+        required: false,
+        success: false,
+        message: structRes.status || 'Unknown Error'
+      });
     }
 
-    // --- Update Ledger ---
-    SyncManager.log("INFO", `Collected ${assetList.length} asset entries. Updating Ledger...`, MODULE_NAME);
-    SyncManager.updateUnifiedLedger(ss, "OKX", assetList);
+    SyncManager.log("INFO", `Collected ${result.assets.length} asset entries from OKX.`, MODULE_NAME);
+    SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
   });
 }
 

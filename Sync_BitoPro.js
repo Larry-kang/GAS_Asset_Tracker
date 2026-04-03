@@ -8,17 +8,23 @@ function getBitoProBalance() {
 
   SyncManager.run(MODULE_NAME, () => {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const result = SyncManager.createResult("BitoPro");
     const creds = Credentials.get('BITOPRO');
     const { apiKey, apiSecret } = creds;
     const baseUrl = 'https://api.bitopro.com/v3';
 
     if (!apiKey || !apiSecret) {
-      SyncManager.log("ERROR", "Missing BitoPro API Keys", MODULE_NAME);
+      SyncManager.registerSourceCheck(result, {
+        name: 'Credentials',
+        required: true,
+        success: false,
+        message: 'Missing BitoPro API Keys'
+      });
+      SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
       return;
     }
 
     const json = fetchBitoProApi_(baseUrl, '/accounts/balance', 'GET', {}, apiKey, apiSecret);
-    const assetList = [];
 
     if (json && json.data) {
       json.data.forEach(b => {
@@ -26,19 +32,30 @@ function getBitoProBalance() {
         const stake = parseFloat(b.stake) || 0;
 
         if (avail > 0) {
-          assetList.push({ ccy: b.currency.toUpperCase(), amt: avail, type: 'Spot', status: 'Available' });
+          result.assets.push({ ccy: b.currency.toUpperCase(), amt: avail, type: 'Spot', status: 'Available' });
         }
         if (stake > 0) {
-          assetList.push({ ccy: b.currency.toUpperCase(), amt: stake, type: 'Spot', status: 'Frozen' });
+          result.assets.push({ ccy: b.currency.toUpperCase(), amt: stake, type: 'Spot', status: 'Frozen' });
         }
       });
 
-      SyncManager.log("INFO", `Collected ${assetList.length} asset entries from BitoPro.`, MODULE_NAME);
-      SyncManager.updateUnifiedLedger(ss, "BitoPro", assetList);
-
+      SyncManager.registerSourceCheck(result, {
+        name: 'Balance',
+        required: true,
+        success: true,
+        rows: result.assets.length
+      });
+      SyncManager.log("INFO", `Collected ${result.assets.length} asset entries from BitoPro.`, MODULE_NAME);
     } else {
-      SyncManager.log("ERROR", `BitoPro API Error: ${JSON.stringify(json)}`, MODULE_NAME);
+      SyncManager.registerSourceCheck(result, {
+        name: 'Balance',
+        required: true,
+        success: false,
+        message: `BitoPro API Error: ${JSON.stringify(json)}`
+      });
     }
+
+    SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
   });
 }
 

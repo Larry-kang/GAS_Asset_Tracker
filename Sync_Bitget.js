@@ -8,20 +8,25 @@ function getBitgetBalance() {
 
   SyncManager.run(MODULE_NAME, () => {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const result = SyncManager.createResult("Bitget");
     const creds = Credentials.get('BITGET');
     const { apiKey, apiSecret, apiPassphrase } = creds;
     const baseUrl = 'https://api.bitget.com';
 
     if (!apiKey || !apiSecret || !apiPassphrase) {
-      SyncManager.log("ERROR", "Missing BITGET_API_KEY / BITGET_API_SECRET / BITGET_API_PASSPHRASE", MODULE_NAME);
+      SyncManager.registerSourceCheck(result, {
+        name: 'Credentials',
+        required: true,
+        success: false,
+        message: 'Missing BITGET_API_KEY / BITGET_API_SECRET / BITGET_API_PASSPHRASE'
+      });
+      SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
       return;
     }
 
-    const assetList = [];
-    const requiredFailures = [];
-
     // A. Spot
     const spotRes = fetchBitgetSpotAssets_(baseUrl, apiKey, apiSecret, apiPassphrase);
+    let spotRows = 0;
     if (spotRes.success && spotRes.data) {
       spotRes.data.forEach(item => {
         const coin = String(item.coin || "").toUpperCase();
@@ -31,57 +36,80 @@ function getBitgetBalance() {
         const restricted = parseBitgetNumber_(item.limitAvailable);
 
         if (!coin) return;
-        if (available > 0) assetList.push({ ccy: coin, amt: available, type: 'Spot', status: 'Available', meta: 'Spot Available' });
-        if (frozen > 0) assetList.push({ ccy: coin, amt: frozen, type: 'Spot', status: 'Frozen', meta: 'Spot Frozen' });
-        if (locked > 0) assetList.push({ ccy: coin, amt: locked, type: 'Spot', status: 'Locked', meta: 'Spot Locked' });
-        if (restricted > 0) assetList.push({ ccy: coin, amt: restricted, type: 'Spot', status: 'Restricted', meta: 'Spot LimitAvailable' });
+        if (available > 0) { result.assets.push({ ccy: coin, amt: available, type: 'Spot', status: 'Available', meta: 'Spot Available' }); spotRows++; }
+        if (frozen > 0) { result.assets.push({ ccy: coin, amt: frozen, type: 'Spot', status: 'Frozen', meta: 'Spot Frozen' }); spotRows++; }
+        if (locked > 0) { result.assets.push({ ccy: coin, amt: locked, type: 'Spot', status: 'Locked', meta: 'Spot Locked' }); spotRows++; }
+        if (restricted > 0) { result.assets.push({ ccy: coin, amt: restricted, type: 'Spot', status: 'Restricted', meta: 'Spot LimitAvailable' }); spotRows++; }
       });
+      SyncManager.registerSourceCheck(result, { name: 'Spot', required: true, success: true, rows: spotRows });
     } else {
-      requiredFailures.push(`Spot assets fetch failed: ${spotRes.status || 'Unknown error'}`);
+      SyncManager.registerSourceCheck(result, {
+        name: 'Spot',
+        required: true,
+        success: false,
+        message: spotRes.status || 'Unknown error'
+      });
     }
 
     // B. Savings - Flexible
     const flexibleRes = fetchBitgetSavingsAssets_(baseUrl, apiKey, apiSecret, apiPassphrase, 'flexible');
+    let flexibleRows = 0;
     if (flexibleRes.success && flexibleRes.data) {
       flexibleRes.data.forEach(item => {
         const coin = String(item.productCoin || "").toUpperCase();
         const holdAmount = parseBitgetNumber_(item.holdAmount);
         if (!coin || holdAmount <= 0) return;
 
-        assetList.push({
+        result.assets.push({
           ccy: coin,
           amt: holdAmount,
           type: 'Earn',
           status: 'Flexible',
           meta: buildBitgetSavingsMeta_(item)
         });
+        flexibleRows++;
       });
+      SyncManager.registerSourceCheck(result, { name: 'Savings Flexible', required: true, success: true, rows: flexibleRows });
     } else {
-      requiredFailures.push(`Flexible savings fetch failed: ${flexibleRes.status || 'Unknown error'}`);
+      SyncManager.registerSourceCheck(result, {
+        name: 'Savings Flexible',
+        required: true,
+        success: false,
+        message: flexibleRes.status || 'Unknown error'
+      });
     }
 
     // C. Savings - Fixed
     const fixedRes = fetchBitgetSavingsAssets_(baseUrl, apiKey, apiSecret, apiPassphrase, 'fixed');
+    let fixedRows = 0;
     if (fixedRes.success && fixedRes.data) {
       fixedRes.data.forEach(item => {
         const coin = String(item.productCoin || "").toUpperCase();
         const holdAmount = parseBitgetNumber_(item.holdAmount);
         if (!coin || holdAmount <= 0) return;
 
-        assetList.push({
+        result.assets.push({
           ccy: coin,
           amt: holdAmount,
           type: 'Earn',
           status: 'Fixed',
           meta: buildBitgetSavingsMeta_(item)
         });
+        fixedRows++;
       });
+      SyncManager.registerSourceCheck(result, { name: 'Savings Fixed', required: true, success: true, rows: fixedRows });
     } else {
-      requiredFailures.push(`Fixed savings fetch failed: ${fixedRes.status || 'Unknown error'}`);
+      SyncManager.registerSourceCheck(result, {
+        name: 'Savings Fixed',
+        required: true,
+        success: false,
+        message: fixedRes.status || 'Unknown error'
+      });
     }
 
     // D. Crypto Loan - Ongoing
     const loanRes = fetchBitgetBorrowOngoing_(baseUrl, apiKey, apiSecret, apiPassphrase);
+    let loanRows = 0;
     if (loanRes.success && loanRes.data) {
       loanRes.data.forEach(item => {
         const loanCoin = String(item.loanCoin || "").toUpperCase();
@@ -92,31 +120,40 @@ function getBitgetBalance() {
         const pledgeAmount = parseBitgetNumber_(item.pledgeAmount);
 
         if (loanCoin && totalDebt > 0) {
-          assetList.push({
+          result.assets.push({
             ccy: loanCoin,
             amt: -Math.abs(totalDebt),
             type: 'Loan',
             status: 'Debt',
             meta: buildBitgetLoanDebtMeta_(item, loanAmount, interestAmount)
           });
+          loanRows++;
         }
 
         if (pledgeCoin && pledgeAmount > 0) {
-          assetList.push({
+          result.assets.push({
             ccy: pledgeCoin,
             amt: pledgeAmount,
             type: 'Loan',
             status: 'Collateral',
             meta: buildBitgetLoanCollateralMeta_(item)
           });
+          loanRows++;
         }
       });
+      SyncManager.registerSourceCheck(result, { name: 'Crypto Loan', required: true, success: true, rows: loanRows });
     } else {
-      requiredFailures.push(`Crypto loan fetch failed: ${loanRes.status || 'Unknown error'}`);
+      SyncManager.registerSourceCheck(result, {
+        name: 'Crypto Loan',
+        required: true,
+        success: false,
+        message: loanRes.status || 'Unknown error'
+      });
     }
 
     // E. Funding (Optional)
     const fundingRes = fetchBitgetFundingAssets_(baseUrl, apiKey, apiSecret, apiPassphrase);
+    let fundingRows = 0;
     if (fundingRes.success && fundingRes.data) {
       fundingRes.data.forEach(item => {
         const coin = String(item.coin || "").toUpperCase();
@@ -126,21 +163,21 @@ function getBitgetBalance() {
         const meta = usdtValue > 0 ? `usdtValue=${usdtValue}` : '';
 
         if (!coin) return;
-        if (available > 0) assetList.push({ ccy: coin, amt: available, type: 'Funding', status: 'Available', meta: meta });
-        if (frozen > 0) assetList.push({ ccy: coin, amt: frozen, type: 'Funding', status: 'Frozen', meta: meta });
+        if (available > 0) { result.assets.push({ ccy: coin, amt: available, type: 'Funding', status: 'Available', meta: meta }); fundingRows++; }
+        if (frozen > 0) { result.assets.push({ ccy: coin, amt: frozen, type: 'Funding', status: 'Frozen', meta: meta }); fundingRows++; }
       });
+      SyncManager.registerSourceCheck(result, { name: 'Funding', required: false, success: true, rows: fundingRows });
     } else {
-      SyncManager.log("WARNING", `Funding assets skipped: ${fundingRes.status || 'Unknown error'}`, MODULE_NAME);
+      SyncManager.registerSourceCheck(result, {
+        name: 'Funding',
+        required: false,
+        success: false,
+        message: fundingRes.status || 'Unknown error'
+      });
     }
 
-    if (requiredFailures.length > 0) {
-      requiredFailures.forEach(msg => SyncManager.log("ERROR", msg, MODULE_NAME));
-      SyncManager.log("ERROR", "Required Bitget data incomplete. Ledger update aborted to avoid partial overwrite.", MODULE_NAME);
-      return;
-    }
-
-    SyncManager.log("INFO", `Collected ${assetList.length} asset entries. Updating Ledger...`, MODULE_NAME);
-    SyncManager.updateUnifiedLedger(ss, "Bitget", assetList);
+    SyncManager.log("INFO", `Collected ${result.assets.length} asset entries from Bitget.`, MODULE_NAME);
+    SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
   });
 }
 

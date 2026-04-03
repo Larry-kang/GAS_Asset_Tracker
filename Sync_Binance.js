@@ -8,23 +8,34 @@ function getBinanceBalance() {
 
   SyncManager.run(MODULE_NAME, () => {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const result = SyncManager.createResult("Binance");
     const creds = Credentials.get('BINANCE');
     const { apiKey, apiSecret, tunnelUrl: baseUrl, proxyPassword } = creds;
 
     if (!Credentials.isValid(creds)) {
-      SyncManager.log("ERROR", "Missing BINANCE_API_KEY or SECRET", MODULE_NAME);
+      SyncManager.registerSourceCheck(result, {
+        name: 'Credentials',
+        required: true,
+        success: false,
+        message: 'Missing BINANCE_API_KEY or SECRET'
+      });
+      SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
       return;
     }
     if (!baseUrl || !proxyPassword) {
-      SyncManager.log("WARNING", "Skipping: No Tunnel URL", MODULE_NAME);
+      SyncManager.registerSourceCheck(result, {
+        name: 'Bridge',
+        required: true,
+        success: false,
+        message: 'Missing Tunnel URL or Proxy Password'
+      });
+      SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
       return;
     }
 
-    // --- Data Collection ---
-    const assetList = [];
-
     // A. Spot
     const spotRes = fetchSpotBalances_(baseUrl, apiKey, apiSecret, proxyPassword);
+    let spotRows = 0;
     if (spotRes.success && spotRes.data) {
       spotRes.data.forEach(item => {
         // [Rule] Exclude 'LD' (Locked/Earn) assets from Spot to prevent duplication/clutter
@@ -32,86 +43,157 @@ function getBinanceBalance() {
 
         // Free
         if (item.free > 0) {
-          assetList.push({ ccy: item.asset, amt: item.free, type: 'Spot', status: 'Available' });
+          result.assets.push({ ccy: item.asset, amt: item.free, type: 'Spot', status: 'Available' });
+          spotRows++;
         }
         // Locked
         if (item.locked > 0) {
-          assetList.push({ ccy: item.asset, amt: item.locked, type: 'Spot', status: 'Frozen' });
+          result.assets.push({ ccy: item.asset, amt: item.locked, type: 'Spot', status: 'Frozen' });
+          spotRows++;
         }
+      });
+      SyncManager.registerSourceCheck(result, { name: 'Spot', required: true, success: true, rows: spotRows });
+    } else {
+      SyncManager.registerSourceCheck(result, {
+        name: 'Spot',
+        required: true,
+        success: false,
+        message: 'Spot fetch failed'
       });
     }
 
     // B. Funding (Wallet)
     const fundingRes = fetchFundingBalances_(baseUrl, apiKey, apiSecret, proxyPassword);
+    let fundingRows = 0;
     if (fundingRes.success && fundingRes.data) {
       fundingRes.data.forEach(item => {
         if (item.free > 0) {
-          assetList.push({ ccy: item.asset, amt: item.free, type: 'Funding', status: 'Available' });
+          result.assets.push({ ccy: item.asset, amt: item.free, type: 'Funding', status: 'Available' });
+          fundingRows++;
         }
         if (item.locked > 0) {
-          assetList.push({ ccy: item.asset, amt: item.locked, type: 'Funding', status: 'Frozen' });
+          result.assets.push({ ccy: item.asset, amt: item.locked, type: 'Funding', status: 'Frozen' });
+          fundingRows++;
         }
+      });
+      SyncManager.registerSourceCheck(result, { name: 'Funding', required: true, success: true, rows: fundingRows });
+    } else {
+      SyncManager.registerSourceCheck(result, {
+        name: 'Funding',
+        required: true,
+        success: false,
+        message: 'Funding fetch failed'
       });
     }
 
     // C. USD-M Futures
     const usdmRes = fetchUsdmFuturesBalances_(baseUrl, apiKey, apiSecret, proxyPassword);
+    let usdmRows = 0;
     if (usdmRes.success && usdmRes.data) {
       usdmRes.data.forEach(item => {
         if (item.balance > 0) {
-          assetList.push({ ccy: item.asset, amt: item.balance, type: 'USD-M Futures', status: 'Equity' });
+          result.assets.push({ ccy: item.asset, amt: item.balance, type: 'USD-M Futures', status: 'Equity' });
+          usdmRows++;
         }
       });
+      SyncManager.registerSourceCheck(result, { name: 'USD-M Futures', required: false, success: true, rows: usdmRows });
     } else if (usdmRes.code === "-403") {
-      SyncManager.log("WARNING", "Missing 'Enable Futures' API Permission. USD-M data skipped.", MODULE_NAME);
+      SyncManager.registerSourceCheck(result, {
+        name: 'USD-M Futures',
+        required: false,
+        success: false,
+        message: "Missing 'Enable Futures' API Permission. USD-M data skipped."
+      });
+    } else {
+      SyncManager.registerSourceCheck(result, {
+        name: 'USD-M Futures',
+        required: false,
+        success: false,
+        message: 'USD-M futures fetch failed'
+      });
     }
 
     // D. COIN-M Futures
     const coinmRes = fetchCoinmFuturesBalances_(baseUrl, apiKey, apiSecret, proxyPassword);
+    let coinmRows = 0;
     if (coinmRes.success && coinmRes.data) {
       coinmRes.data.forEach(item => {
         if (item.balance > 0) {
-          assetList.push({ ccy: item.asset, amt: item.balance, type: 'COIN-M Futures', status: 'Equity' });
+          result.assets.push({ ccy: item.asset, amt: item.balance, type: 'COIN-M Futures', status: 'Equity' });
+          coinmRows++;
         }
       });
+      SyncManager.registerSourceCheck(result, { name: 'COIN-M Futures', required: false, success: true, rows: coinmRows });
     } else if (coinmRes.code === "-403") {
-      SyncManager.log("WARNING", "Missing 'Enable Futures' API Permission. COIN-M data skipped.", MODULE_NAME);
+      SyncManager.registerSourceCheck(result, {
+        name: 'COIN-M Futures',
+        required: false,
+        success: false,
+        message: "Missing 'Enable Futures' API Permission. COIN-M data skipped."
+      });
+    } else {
+      SyncManager.registerSourceCheck(result, {
+        name: 'COIN-M Futures',
+        required: false,
+        success: false,
+        message: 'COIN-M futures fetch failed'
+      });
     }
 
     // E. Earn
     const earnRes = fetchEarnPositions_(baseUrl, apiKey, apiSecret, proxyPassword);
+    let earnRows = 0;
     if (earnRes.success && earnRes.data) {
       earnRes.data.forEach(item => {
-        assetList.push({ ccy: item.asset, amt: item.amount, type: 'Earn', status: 'Staked' });
+        result.assets.push({ ccy: item.asset, amt: item.amount, type: 'Earn', status: 'Staked' });
+        earnRows++;
+      });
+      SyncManager.registerSourceCheck(result, { name: 'Earn', required: true, success: true, rows: earnRows });
+    } else {
+      SyncManager.registerSourceCheck(result, {
+        name: 'Earn',
+        required: true,
+        success: false,
+        message: 'Earn fetch failed'
       });
     }
 
     // F. Loans
     const loanRes = fetchLoanOrders_(baseUrl, apiKey, apiSecret, proxyPassword);
+    let loanRows = 0;
     if (loanRes.success && loanRes.data) {
       loanRes.data.forEach(order => {
         // Debt (Negative)
-        assetList.push({
+        result.assets.push({
           ccy: order.loanCoin,
           amt: -Math.abs(order.totalDebt),
           type: 'Loan',
           status: 'Debt',
           meta: `LTV: ${(order.currentLTV * 100).toFixed(2)}%`
         });
+        loanRows++;
         // Collateral
-        assetList.push({
+        result.assets.push({
           ccy: order.collateralCoin,
           amt: order.collateralAmount,
           type: 'Loan',
           status: 'Collateral',
           meta: `Ref: ${order.loanCoin}`
         });
+        loanRows++;
+      });
+      SyncManager.registerSourceCheck(result, { name: 'Loans', required: true, success: true, rows: loanRows });
+    } else {
+      SyncManager.registerSourceCheck(result, {
+        name: 'Loans',
+        required: true,
+        success: false,
+        message: 'Loan fetch failed'
       });
     }
 
-    // --- Write to Unified Ledger ---
-    SyncManager.log("INFO", `Collected ${assetList.length} asset entries. Updating Ledger...`, MODULE_NAME);
-    SyncManager.updateUnifiedLedger(ss, "Binance", assetList);
+    SyncManager.log("INFO", `Collected ${result.assets.length} asset entries from Binance.`, MODULE_NAME);
+    SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
 
     // Clean up old sheets if needed (manual cleanup recommended later)
   });
