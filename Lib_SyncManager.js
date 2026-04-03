@@ -248,72 +248,15 @@ const SyncManager = {
      * Schema: { ccy, amt, type, status, meta }
      */
     updateUnifiedLedger: function (ss, targetExchange, newAssets) {
-        let sheet = ss.getSheetByName(this.LEDGER_SHEET_NAME);
-
-        // 1. Auto-Create Sheet if missing
-        if (!sheet) {
-            sheet = ss.insertSheet(this.LEDGER_SHEET_NAME);
-            // Init Headers
-            sheet.getRange(1, 1, 1, this.LEDGER_HEADERS.length).setValues([this.LEDGER_HEADERS]);
-            sheet.getRange(1, 1, 1, this.LEDGER_HEADERS.length).setFontWeight('bold').setBackground('#e3f2fd');
-            sheet.setFrozenRows(1);
-        }
-
-        // 2. Read Existing Data
-        const lastRow = sheet.getLastRow();
-        let existingData = [];
-        if (lastRow > 1) {
-            // Read all data (Cols A to G)
-            existingData = sheet.getRange(2, 1, lastRow - 1, this.LEDGER_HEADERS.length).getValues();
-        }
-
-        // 3. Filter OUT old data for this exchange
-        // Col Index 0 is 'Exchange'
-        const otherExchangeData = existingData.filter(row => row[0] !== targetExchange);
-
-        this.log("INFO", `[Ledger] Retained ${otherExchangeData.length} rows from other exchanges. Removing old ${targetExchange} data.`, "SyncManager");
-
-        // 4. Transform New Assets to Row Format
-        // Schema: Exchange | Currency | Amount | Type | Status | Meta | Updated
-        const timestamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
-
-        const newRows = newAssets.map(asset => {
-            return [
-                targetExchange,           // Exchange
-                asset.ccy,                // Currency
-                asset.amt,                // Amount
-                asset.type || 'Spot',     // Type
-                asset.status || 'Avail',  // Status
-                asset.meta || '',         // Meta
-                timestamp                 // Updated
-            ];
+        const summary = UnifiedAssetsRepo.replaceExchangeSnapshot(ss, targetExchange, newAssets, {
+            sheetName: this.LEDGER_SHEET_NAME,
+            headers: this.LEDGER_HEADERS
         });
 
-        // 5. Combine & Sort
-        const finalData = [...otherExchangeData, ...newRows];
+        this.log("INFO", `[Ledger] Retained ${summary.retainedRows} rows from other exchanges. Removing old ${targetExchange} data.`, "SyncManager");
 
-        // Sort logic: Exchange (A-Z) -> Type (Spot/Earn/Loan) -> Currency (A-Z)
-        finalData.sort((a, b) => {
-            if (a[0] !== b[0]) return a[0].localeCompare(b[0]); // Exchange
-            if (a[3] !== b[3]) return b[3].localeCompare(a[3]); // Type (Spot vs Loan desc)
-            return a[1].localeCompare(b[1]);                    // Currency
-        });
-
-        // 6. Write Back (Safer Replace)
-        // Write the new final state first, then clear any stale tail rows.
-        const existingRowCount = lastRow > 1 ? (lastRow - 1) : 0;
-
-        if (finalData.length > 0) {
-            sheet.getRange(2, 1, finalData.length, this.LEDGER_HEADERS.length).setValues(finalData);
-            SpreadsheetApp.flush();
-        }
-
-        if (existingRowCount > finalData.length) {
-            sheet.getRange(2 + finalData.length, 1, existingRowCount - finalData.length, this.LEDGER_HEADERS.length).clearContent();
-        }
-
-        if (finalData.length > 0) {
-            this.log("INFO", `[Ledger] Updated. Total Rows: ${finalData.length} (Added ${newRows.length} from ${targetExchange})`, "SyncManager");
+        if (summary.rowCount > 0) {
+            this.log("INFO", `[Ledger] Updated. Total Rows: ${summary.rowCount} (Added ${summary.insertedRows} from ${targetExchange})`, "SyncManager");
         } else {
             this.log("WARNING", `[Ledger] Sheet is empty after update.`, "SyncManager");
         }
@@ -340,13 +283,15 @@ const SyncManager = {
                 }
             }
 
-            let sheet = ss.getSheetByName(this.STATUS_SHEET_NAME);
-            if (!sheet) {
-                sheet = ss.insertSheet(this.STATUS_SHEET_NAME);
-                sheet.getRange(1, 1, 1, this.STATUS_HEADERS.length).setValues([this.STATUS_HEADERS]);
-                sheet.getRange(1, 1, 1, this.STATUS_HEADERS.length).setFontWeight('bold').setBackground('#fff3e0');
-                sheet.setFrozenRows(1);
-            }
+            let sheet = WorkbookContracts.ensureHeaderSheet(
+                ss,
+                this.STATUS_SHEET_NAME,
+                this.STATUS_HEADERS,
+                {
+                    headerBackground: '#fff3e0',
+                    frozenRows: 1
+                }
+            );
 
             const lastRow = sheet.getLastRow();
             let existingData = [];

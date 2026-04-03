@@ -23,14 +23,13 @@ function runSystemHealthCheck() {
     // 2. Sheet Structure Check
     report += "\n[II] 工作表與結構檢查\n";
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const requiredSheets = ["Balance Sheet", "Key Market Indicators", "System_Logs"];
-    requiredSheets.forEach(s => {
-        const sheet = ss.getSheetByName(s);
-        if (!sheet) {
-            report += `[失敗] 缺少工作表: ${s}\n`;
+    const contractResults = WorkbookContracts.validateCoreSheets(ss);
+    contractResults.forEach(result => {
+        if (!result.ok) {
+            report += `[失敗] ${result.message}\n`;
             issues++;
         } else {
-            report += `[通過] 找到工作表: ${s}\n`;
+            report += `[通過] ${result.sheetName} 結構正常\n`;
         }
     });
 

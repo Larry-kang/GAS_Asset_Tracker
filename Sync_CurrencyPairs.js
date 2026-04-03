@@ -10,14 +10,7 @@ function syncCurrencyPairs(silent = false) {
 
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const targetSheet = ss.getSheetByName('參數設定');
-    if (!targetSheet) {
-      const msg = "錯誤：找不到名為 '參數設定' 的工作表。";
-      LogService.error(msg, MODULE_NAME);
-      if (!silent) SpreadsheetApp.getUi().alert(msg);
-      else console.error(msg);
-      return;
-    }
+    const targetSheet = WorkbookContracts.requireContractSheet(ss, 'SETTINGS_MATRIX');
     const allSheets = ss.getSheets();
 
     // 獲取 '參數設定' 表中已有的貨幣列表

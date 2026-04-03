@@ -17,14 +17,16 @@ function updateAllPrices() {
   LogService.info('Starting Market Price Update...', MODULE_NAME);
 
   try {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('價格暫存');
-    if (!sheet) {
-      const msg = "錯誤：找不到名為 '價格暫存' 的工作表。";
-      LogService.error(msg, MODULE_NAME);
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = WorkbookContracts.requireContractSheet(ss, 'PRICE_CACHE');
+    const lastRow = sheet.getLastRow();
+
+    if (lastRow <= 1) {
+      LogService.info('Price cache sheet is empty. No rows to update.', MODULE_NAME);
       return;
     }
 
-    const dataRange = sheet.getRange('A2:D' + sheet.getLastRow());
+    const dataRange = sheet.getRange(2, 1, lastRow - 1, 4);
     const data = dataRange.getValues();
     const currentTime = new Date();
     const CACHE_DURATION = 1 * 60 * 1000; // 快取時間：1分鐘 (原15分似太久, 配合高頻監控調整)

@@ -50,7 +50,7 @@ function onOpen() {
 function openLogSheet() {
   LogService.info('User accessed System Logs sheet', 'UI:openLogSheet');
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName("System_Logs");
+  let sheet = ss.getSheetByName(LogService.SHEET_NAME);
   if (sheet) {
     ss.setActiveSheet(sheet);
   } else {
