@@ -154,7 +154,7 @@ function getOkxBalance() {
       });
     }
 
-    // F. Structured Products (Shark Fin, etc.)
+    // F. Staking / DeFi Active Orders
     const structRes = fetchOkxStructured_(baseUrl, apiKey, apiSecret, apiPassphrase);
     let structuredRows = 0;
     if (structRes.success && structRes.data) {
@@ -162,16 +162,16 @@ function getOkxBalance() {
         result.assets.push({
           ccy: item.ccy,
           amt: item.amt,
-          type: 'Structured',
+          type: 'Staking/DeFi',
           status: 'Active',
-          meta: `Structured ID: ${item.ordId}`
+          meta: buildOkxStakingMeta_(item)
         });
         structuredRows++;
       });
-      SyncManager.registerSourceCheck(result, { name: 'Structured', required: false, success: true, rows: structuredRows });
+      SyncManager.registerSourceCheck(result, { name: 'Staking/DeFi', required: false, success: true, rows: structuredRows });
     } else {
       SyncManager.registerSourceCheck(result, {
-        name: 'Structured',
+        name: 'Staking/DeFi',
         required: false,
         success: false,
         message: structRes.status || 'Unknown Error'
@@ -322,7 +322,19 @@ function fetchOkxStructured_(baseUrl, apiKey, apiSecret, apiPassphrase) {
       res.data.forEach(o => {
         const amt = parseFloat(o.amt);
         if (amt > 0) {
-          rawList.push({ ccy: o.ccy, amt: amt, ordId: o.ordId });
+          rawList.push({
+            ccy: o.ccy,
+            amt: amt,
+            ordId: o.ordId,
+            productId: o.productId,
+            protocol: o.protocol,
+            protocolType: o.protocolType,
+            term: o.term,
+            apy: o.apy,
+            state: o.state,
+            purchasedTime: o.purchasedTime,
+            estSettlementTime: o.estSettlementTime
+          });
         }
       });
     }
@@ -406,4 +418,20 @@ function pushOkxMetaPart_(parts, key, value) {
 function appendOkxMetaPrefix_(prefix, meta) {
   if (!meta) return prefix;
   return `${prefix}; ${meta}`;
+}
+
+function buildOkxStakingMeta_(item) {
+  const parts = [];
+
+  pushOkxMetaPart_(parts, 'ordId', item.ordId);
+  pushOkxMetaPart_(parts, 'productId', item.productId);
+  pushOkxMetaPart_(parts, 'protocol', item.protocol);
+  pushOkxMetaPart_(parts, 'protocolType', item.protocolType);
+  pushOkxMetaPart_(parts, 'term', item.term);
+  pushOkxMetaPart_(parts, 'apy', item.apy);
+  pushOkxMetaPart_(parts, 'state', item.state);
+  pushOkxMetaPart_(parts, 'purchasedTime', item.purchasedTime);
+  pushOkxMetaPart_(parts, 'estSettlementTime', item.estSettlementTime);
+
+  return parts.join('; ');
 }
