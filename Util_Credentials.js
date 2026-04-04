@@ -7,7 +7,7 @@
 const Credentials = {
     /**
      * Get API keys for specific exchange
-     * @param {string} exchange - e.g. 'BINANCE', 'OKX', 'BITOPRO', 'PIONEX'
+     * @param {string} exchange - e.g. 'BINANCE', 'OKX', 'BITGET', 'BYBIT', 'BITOPRO', 'PIONEX'
      * @returns {Object} Keys object { apiKey, apiSecret, ...others }
      */
     get: function (exchange) {

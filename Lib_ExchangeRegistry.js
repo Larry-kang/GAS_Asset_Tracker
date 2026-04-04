@@ -23,6 +23,13 @@ const ExchangeRegistry = {
         requiredSettings: ['BITGET_API_KEY', 'BITGET_API_SECRET', 'BITGET_API_PASSPHRASE']
       },
       {
+        id: 'BYBIT',
+        displayName: 'Bybit',
+        moduleName: 'Bybit',
+        functionName: 'getBybitBalance',
+        requiredSettings: ['BYBIT_API_KEY', 'BYBIT_API_SECRET']
+      },
+      {
         id: 'PIONEX',
         displayName: '派網',
         moduleName: 'Pionex',
