@@ -10,13 +10,8 @@ function syncCurrencyPairs(silent = false) {
 
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const targetSheet = WorkbookContracts.requireContractSheet(ss, 'SETTINGS_MATRIX');
+    SettingsMatrixRepo.getSheet_(ss);
     const allSheets = ss.getSheets();
-
-    // 獲取 '參數設定' 表中已有的貨幣列表
-    const existingFrom = targetSheet.getRange('A2:A').getValues().flat().filter(String);
-    const existingTo = targetSheet.getRange('1:1').getValues()[0].filter(String);
-
     const requiredPairs = new Set();
     const formulaRegex = /MY_GOOGLEFINANCE\(([^,)]+),([^,)]+)\)/gi;
 
@@ -49,28 +44,19 @@ function syncCurrencyPairs(silent = false) {
       });
     });
 
-    let newFromAdded = false;
-    let newToAdded = false;
+    const appendResult = SettingsMatrixRepo.appendMissingPairs(
+      ss,
+      Array.from(requiredPairs).map(pairStr => JSON.parse(pairStr))
+    );
+    const newFromAdded = appendResult.newFromAdded;
+    const newToAdded = appendResult.newToAdded;
 
-    // 處理所有需要的新貨幣對
-    requiredPairs.forEach(pairStr => {
-      const pair = JSON.parse(pairStr);
+    appendResult.addedFromCurrencies.forEach(currency => {
+      LogService.info(`Added From-Currency: ${currency}`, MODULE_NAME);
+    });
 
-      if (!existingFrom.includes(pair.from)) {
-        targetSheet.appendRow([pair.from]);
-        existingFrom.push(pair.from);
-        newFromAdded = true;
-        LogService.info(`Added From-Currency: ${pair.from}`, MODULE_NAME);
-      }
-
-      let toColIndex = existingTo.findIndex(h => h === pair.to);
-      if (toColIndex === -1 || (toColIndex % 2 === 0 && toColIndex !== 0)) {
-        const lastCol = targetSheet.getLastColumn();
-        targetSheet.getRange(1, lastCol + 1, 1, 2).setValues([[pair.to, 'Timestamp']]);
-        existingTo.push(pair.to);
-        newToAdded = true;
-        LogService.info(`Added To-Currency: ${pair.to}`, MODULE_NAME);
-      }
+    appendResult.addedToCurrencies.forEach(currency => {
+      LogService.info(`Added To-Currency: ${currency}`, MODULE_NAME);
     });
 
     if (!silent) {
@@ -109,9 +95,10 @@ function resolveArgument(argText, currentSheet) {
 
   // 情況2：參數是儲存格引用
   try {
+    const spreadsheet = currentSheet.getParent ? currentSheet.getParent() : SpreadsheetApp.getActiveSpreadsheet();
     // 檢查是否包含工作表名稱, e.g., '工作表2'!B2
     if (argText.includes('!')) {
-      return SpreadsheetApp.getActiveSpreadsheet().getRange(argText).getValue();
+      return spreadsheet.getRange(argText).getValue();
     } else {
       // 引用當前工作表的儲存格, e.g., A1
       return currentSheet.getRange(argText).getValue();

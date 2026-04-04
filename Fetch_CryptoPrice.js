@@ -13,34 +13,31 @@
 // =======================================================
 function updateAllPrices() {
   const MODULE_NAME = 'Fetch_CryptoPrice';
-  const context = 'updateAllPrices';
   LogService.info('Starting Market Price Update...', MODULE_NAME);
 
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = WorkbookContracts.requireContractSheet(ss, 'PRICE_CACHE');
-    const lastRow = sheet.getLastRow();
+    const rows = PriceCacheRepo.readRows(ss);
+    const cacheDurationMinutes = (Config && Config.THRESHOLDS && Config.THRESHOLDS.PRICE_CACHE_MINUTES) || 1;
+    const cacheDurationMs = cacheDurationMinutes * 60 * 1000;
 
-    if (lastRow <= 1) {
+    if (rows.length === 0) {
       LogService.info('Price cache sheet is empty. No rows to update.', MODULE_NAME);
       return;
     }
 
-    const dataRange = sheet.getRange(2, 1, lastRow - 1, 4);
-    const data = dataRange.getValues();
     const currentTime = new Date();
-    const CACHE_DURATION = 1 * 60 * 1000; // 快取時間：1分鐘 (原15分似太久, 配合高頻監控調整)
 
     let updatedCount = 0;
     let failedCount = 0;
 
-    for (let i = 0; i < data.length; i++) {
-      const ticker = data[i][0];
-      const type = data[i][1];
-      const lastUpdated = data[i][3];
+    rows.forEach(row => {
+      const ticker = row.ticker;
+      const type = row.assetType;
+      const lastUpdated = row.updatedAt;
 
       // 檢查標的是否存在，以及是否需要更新
-      if (ticker && (!lastUpdated || (currentTime.getTime() - new Date(lastUpdated).getTime()) > CACHE_DURATION)) {
+      if (ticker && (!lastUpdated || (currentTime.getTime() - new Date(lastUpdated).getTime()) > cacheDurationMs)) {
         let price = null;
 
         // 根據資產類型，呼叫不同的價格獲取“調度中心”
@@ -52,15 +49,18 @@ function updateAllPrices() {
 
         // 如果成功獲取價格，則更新到工作表中
         if (typeof price === 'number' && !isNaN(price)) {
-          sheet.getRange(i + 2, 3).setValue(price); // 更新價格
-          sheet.getRange(i + 2, 4).setValue(currentTime); // 更新時間戳
+          row.price = price;
+          row.updatedAt = currentTime;
           updatedCount++;
-          // Logger.log(`[OK] 成功更新 ${ticker} 的價格: ${price}`); // 減少細節日誌以節省空間
         } else {
           failedCount++;
           LogService.warn(`[FAILED] 更新 ${ticker} 的價格失敗。`, MODULE_NAME);
         }
       }
+    });
+
+    if (updatedCount > 0) {
+      PriceCacheRepo.writeRows(ss, rows);
     }
 
     LogService.info(`Price Update Completed. Updated: ${updatedCount}, Failed: ${failedCount}`, MODULE_NAME);
