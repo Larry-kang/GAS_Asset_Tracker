@@ -28,9 +28,25 @@ function getOkxBalance() {
     let accountRows = 0;
     if (accRes.success && accRes.data) {
       accRes.data.forEach(item => {
-        if (item.avail > 0) { result.assets.push({ ccy: item.ccy, amt: item.avail, type: 'Spot', status: 'Available' }); accountRows++; }
-        if (item.frozen > 0) { result.assets.push({ ccy: item.ccy, amt: item.frozen, type: 'Spot', status: 'Frozen' }); accountRows++; }
-        if (item.liab > 0) { result.assets.push({ ccy: item.ccy, amt: -Math.abs(item.liab), type: 'Loan', status: 'Debt', meta: 'Margin Liability' }); accountRows++; }
+        const accountMeta = buildOkxAccountMeta_(item);
+        if (item.avail > 0) {
+          result.assets.push({ ccy: item.ccy, amt: item.avail, type: 'Spot', status: 'Available', meta: accountMeta });
+          accountRows++;
+        }
+        if (item.frozen > 0) {
+          result.assets.push({ ccy: item.ccy, amt: item.frozen, type: 'Spot', status: 'Frozen', meta: accountMeta });
+          accountRows++;
+        }
+        if (item.liab > 0) {
+          result.assets.push({
+            ccy: item.ccy,
+            amt: -Math.abs(item.liab),
+            type: 'Loan',
+            status: 'Debt',
+            meta: appendOkxMetaPrefix_('Margin Liability', accountMeta)
+          });
+          accountRows++;
+        }
       });
       SyncManager.registerSourceCheck(result, { name: 'Account', required: true, success: true, rows: accountRows });
     } else {
@@ -106,7 +122,7 @@ function getOkxBalance() {
           amt: item.amt,
           type: 'Positions',
           status: 'Position',
-          meta: `${item.instId} (${item.mgnMode})`
+          meta: buildOkxPositionMeta_(item)
         });
         positionRows++;
       });
@@ -178,7 +194,17 @@ function fetchOkxAccount_(baseUrl, apiKey, apiSecret, apiPassphrase) {
         ccy: b.ccy,
         avail: parseFloat(b.availBal) || 0,
         frozen: parseFloat(b.frozenBal) || 0,
-        liab: parseFloat(b.liab) || 0
+        liab: parseFloat(b.liab) || 0,
+        eqUsd: b.eqUsd,
+        cashBal: b.cashBal,
+        upl: b.upl,
+        uplLiab: b.uplLiab,
+        interest: b.interest,
+        imr: b.imr,
+        mmr: b.mmr,
+        maxLoan: b.maxLoan,
+        spotInUseAmt: b.spotInUseAmt || b.clSpotInUseAmt,
+        borrowFroz: b.borrowFroz
       });
     });
     return { success: true, data: rawList };
@@ -252,7 +278,16 @@ function fetchOkxPositions_(baseUrl, apiKey, apiSecret, apiPassphrase) {
             ccy: p.ccy || p.instId.split('-')[0],
             amt: pos,
             instId: p.instId,
-            mgnMode: p.mgnMode
+            mgnMode: p.mgnMode,
+            posSide: p.posSide,
+            avgPx: p.avgPx,
+            markPx: p.markPx,
+            upl: p.upl,
+            liqPx: p.liqPx,
+            lever: p.lever,
+            notionalUsd: p.notionalUsd,
+            adl: p.adl,
+            uTime: p.uTime
           });
         }
       });
@@ -324,4 +359,51 @@ function fetchOkxApi_(baseUrl, endpoint, params, apiKey, apiSecret, apiPassphras
     const json = JSON.parse(content);
     return json;
   } catch (e) { return { code: "-1", msg: e.message }; }
+}
+
+function buildOkxAccountMeta_(item) {
+  const parts = [];
+
+  pushOkxMetaPart_(parts, 'eqUsd', item.eqUsd);
+  pushOkxMetaPart_(parts, 'cashBal', item.cashBal);
+  pushOkxMetaPart_(parts, 'upl', item.upl);
+  pushOkxMetaPart_(parts, 'uplLiab', item.uplLiab);
+  pushOkxMetaPart_(parts, 'interest', item.interest);
+  pushOkxMetaPart_(parts, 'imr', item.imr);
+  pushOkxMetaPart_(parts, 'mmr', item.mmr);
+  pushOkxMetaPart_(parts, 'maxLoan', item.maxLoan);
+  pushOkxMetaPart_(parts, 'spotInUseAmt', item.spotInUseAmt);
+  pushOkxMetaPart_(parts, 'borrowFroz', item.borrowFroz);
+
+  return parts.join('; ');
+}
+
+function buildOkxPositionMeta_(item) {
+  const parts = [];
+
+  pushOkxMetaPart_(parts, 'instId', item.instId);
+  pushOkxMetaPart_(parts, 'posSide', item.posSide);
+  pushOkxMetaPart_(parts, 'mgnMode', item.mgnMode);
+  pushOkxMetaPart_(parts, 'avgPx', item.avgPx);
+  pushOkxMetaPart_(parts, 'markPx', item.markPx);
+  pushOkxMetaPart_(parts, 'upl', item.upl);
+  pushOkxMetaPart_(parts, 'liqPx', item.liqPx);
+  pushOkxMetaPart_(parts, 'lever', item.lever);
+  pushOkxMetaPart_(parts, 'notionalUsd', item.notionalUsd);
+  pushOkxMetaPart_(parts, 'adl', item.adl);
+  pushOkxMetaPart_(parts, 'uTime', item.uTime);
+
+  return parts.join('; ');
+}
+
+function pushOkxMetaPart_(parts, key, value) {
+  if (value === null || value === undefined) return;
+  const text = String(value).trim();
+  if (!text || text === '0' || text === '0.0' || text === '0.00' || text === '0.00000000') return;
+  parts.push(`${key}=${text}`);
+}
+
+function appendOkxMetaPrefix_(prefix, meta) {
+  if (!meta) return prefix;
+  return `${prefix}; ${meta}`;
 }
