@@ -138,25 +138,68 @@ function getBinanceBalance() {
       });
     }
 
-    // E. Earn
-    const earnRes = fetchEarnPositions_(baseUrl, apiKey, apiSecret, proxyPassword);
-    let earnRows = 0;
-    if (earnRes.success && earnRes.data) {
-      earnRes.data.forEach(item => {
-        result.assets.push({ ccy: item.asset, amt: item.amount, type: 'Earn', status: 'Staked' });
-        earnRows++;
+    // E. Earn - Flexible
+    const flexibleEarnRes = fetchFlexibleEarnPositions_(baseUrl, apiKey, apiSecret, proxyPassword);
+    let flexibleEarnRows = 0;
+    if (flexibleEarnRes.success && flexibleEarnRes.data) {
+      flexibleEarnRes.data.forEach(item => {
+        result.assets.push({
+          ccy: item.asset,
+          amt: item.amount,
+          type: 'Earn',
+          status: 'Flexible',
+          meta: buildBinanceFlexibleEarnMeta_(item)
+        });
+        flexibleEarnRows++;
       });
-      SyncManager.registerSourceCheck(result, { name: 'Earn', required: true, success: true, rows: earnRows });
+      SyncManager.registerSourceCheck(result, { name: 'Earn Flexible', required: true, success: true, rows: flexibleEarnRows });
     } else {
       SyncManager.registerSourceCheck(result, {
-        name: 'Earn',
+        name: 'Earn Flexible',
         required: true,
         success: false,
-        message: 'Earn fetch failed'
+        message: 'Flexible earn fetch failed'
       });
     }
 
-    // F. Loans
+    // F. Earn - Locked
+    const lockedEarnRes = fetchLockedEarnPositions_(baseUrl, apiKey, apiSecret, proxyPassword);
+    let lockedEarnRows = 0;
+    if (lockedEarnRes.success && lockedEarnRes.data) {
+      lockedEarnRes.data.forEach(item => {
+        result.assets.push({
+          ccy: item.asset,
+          amt: item.amount,
+          type: 'Earn',
+          status: 'Locked',
+          meta: buildBinanceLockedEarnMeta_(item)
+        });
+        lockedEarnRows++;
+      });
+      SyncManager.registerSourceCheck(result, { name: 'Earn Locked', required: true, success: true, rows: lockedEarnRows });
+    } else {
+      SyncManager.registerSourceCheck(result, {
+        name: 'Earn Locked',
+        required: true,
+        success: false,
+        message: 'Locked earn fetch failed'
+      });
+    }
+
+    // G. Earn Summary (optional verification)
+    const earnSummaryRes = fetchEarnAccountSummary_(baseUrl, apiKey, apiSecret, proxyPassword);
+    if (earnSummaryRes.success && earnSummaryRes.data) {
+      SyncManager.registerSourceCheck(result, { name: 'Earn Summary', required: false, success: true, rows: 0 });
+    } else {
+      SyncManager.registerSourceCheck(result, {
+        name: 'Earn Summary',
+        required: false,
+        success: false,
+        message: 'Earn summary fetch failed'
+      });
+    }
+
+    // H. Loans
     const loanRes = fetchLoanOrders_(baseUrl, apiKey, apiSecret, proxyPassword);
     let loanRows = 0;
     if (loanRes.success && loanRes.data) {
@@ -269,18 +312,102 @@ function fetchCoinmFuturesBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
   return { success: true, data: rawList };
 }
 
-function fetchEarnPositions_(baseUrl, apiKey, apiSecret, proxyPassword) {
-  const res = fetchBinanceApi_(baseUrl, '/sapi/v1/simple-earn/flexible/position', { limit: 100 }, apiKey, apiSecret, proxyPassword);
-  if (res.code !== "0") return { success: false };
+function fetchFlexibleEarnPositions_(baseUrl, apiKey, apiSecret, proxyPassword) {
+  const paged = fetchBinanceEarnPagedRows_(
+    baseUrl,
+    '/sapi/v1/simple-earn/flexible/position',
+    {},
+    apiKey,
+    apiSecret,
+    proxyPassword
+  );
+  if (!paged.success) return paged;
 
   const rawList = [];
-  const rows = Array.isArray(res.data) ? res.data : (res.data.rows || []);
-  rows.forEach(r => {
-    if (parseFloat(r.totalAmount) > 0) {
-      rawList.push({ asset: r.asset, amount: parseFloat(r.totalAmount) });
+  paged.data.forEach(r => {
+    const amount = parseFloat(r.totalAmount);
+    if (amount > 0) {
+      rawList.push({
+        asset: r.asset,
+        amount: amount,
+        productId: r.productId,
+        latestAnnualPercentageRate: r.latestAnnualPercentageRate,
+        tierAnnualPercentageRate: r.tierAnnualPercentageRate,
+        yesterdayRealTimeRewards: r.yesterdayRealTimeRewards,
+        cumulativeTotalRewards: r.cumulativeTotalRewards,
+        autoSubscribe: r.autoSubscribe,
+        canRedeem: r.canRedeem,
+        collateralAmount: r.collateralAmount,
+        airDropAsset: r.airDropAsset
+      });
     }
   });
   return { success: true, data: rawList };
+}
+
+function fetchLockedEarnPositions_(baseUrl, apiKey, apiSecret, proxyPassword) {
+  const paged = fetchBinanceEarnPagedRows_(
+    baseUrl,
+    '/sapi/v1/simple-earn/locked/position',
+    {},
+    apiKey,
+    apiSecret,
+    proxyPassword
+  );
+  if (!paged.success) return paged;
+
+  const rawList = [];
+  paged.data.forEach(r => {
+    const amount = parseFloat(r.amount);
+    if (amount > 0) {
+      rawList.push({
+        asset: r.asset,
+        amount: amount,
+        projectId: r.projectId,
+        positionId: r.positionId,
+        duration: r.duration,
+        APY: r.APY,
+        rewardAsset: r.rewardAsset,
+        rewardAmt: r.rewardAmt,
+        status: r.status,
+        redeemTo: r.redeemTo,
+        autoSubscribe: r.autoSubscribe,
+        canRedeemEarly: r.canRedeemEarly,
+        canFastRedemption: r.canFastRedemption,
+        purchaseTime: r.purchaseTime
+      });
+    }
+  });
+  return { success: true, data: rawList };
+}
+
+function fetchEarnAccountSummary_(baseUrl, apiKey, apiSecret, proxyPassword) {
+  const res = fetchBinanceApi_(baseUrl, '/sapi/v1/simple-earn/account', {}, apiKey, apiSecret, proxyPassword);
+  if (res.code !== "0") return { success: false };
+  return { success: true, data: res.data || {} };
+}
+
+function fetchBinanceEarnPagedRows_(baseUrl, endpoint, baseParams, apiKey, apiSecret, proxyPassword) {
+  const pageSize = 100;
+  const maxPages = 20;
+  const allRows = [];
+
+  for (let current = 1; current <= maxPages; current++) {
+    const params = Object.assign({}, baseParams || {}, { current: current, size: pageSize });
+    const res = fetchBinanceApi_(baseUrl, endpoint, params, apiKey, apiSecret, proxyPassword);
+    if (res.code !== "0") return { success: false, code: res.code, msg: res.msg };
+
+    const rows = Array.isArray(res.data) ? res.data : ((res.data && res.data.rows) || []);
+    if (!rows.length) break;
+
+    allRows.push.apply(allRows, rows);
+
+    const total = Array.isArray(res.data) ? 0 : parseInt(res.data.total, 10) || 0;
+    if (rows.length < pageSize) break;
+    if (total > 0 && allRows.length >= total) break;
+  }
+
+  return { success: true, data: allRows };
 }
 
 function fetchLoanOrders_(baseUrl, apiKey, apiSecret, proxyPassword) {
@@ -299,6 +426,52 @@ function fetchLoanOrders_(baseUrl, apiKey, apiSecret, proxyPassword) {
     });
   });
   return { success: true, data: rawList };
+}
+
+function buildBinanceFlexibleEarnMeta_(item) {
+  const parts = [];
+  pushBinanceMetaPart_(parts, 'productId', item.productId);
+  pushBinanceMetaPart_(parts, 'latestAPR', item.latestAnnualPercentageRate);
+  pushBinanceMetaPart_(parts, 'tierAPR', normalizeBinanceTierApr_(item.tierAnnualPercentageRate));
+  pushBinanceMetaPart_(parts, 'autoSubscribe', item.autoSubscribe);
+  pushBinanceMetaPart_(parts, 'canRedeem', item.canRedeem);
+  pushBinanceMetaPart_(parts, 'collateralAmount', item.collateralAmount);
+  pushBinanceMetaPart_(parts, 'airDropAsset', item.airDropAsset);
+  pushBinanceMetaPart_(parts, 'yesterdayRewards', item.yesterdayRealTimeRewards);
+  pushBinanceMetaPart_(parts, 'totalRewards', item.cumulativeTotalRewards);
+  return parts.join('; ');
+}
+
+function buildBinanceLockedEarnMeta_(item) {
+  const parts = [];
+  pushBinanceMetaPart_(parts, 'projectId', item.projectId);
+  pushBinanceMetaPart_(parts, 'positionId', item.positionId);
+  pushBinanceMetaPart_(parts, 'duration', item.duration);
+  pushBinanceMetaPart_(parts, 'APY', item.APY);
+  pushBinanceMetaPart_(parts, 'rewardAsset', item.rewardAsset);
+  pushBinanceMetaPart_(parts, 'rewardAmt', item.rewardAmt);
+  pushBinanceMetaPart_(parts, 'status', item.status);
+  pushBinanceMetaPart_(parts, 'redeemTo', item.redeemTo);
+  pushBinanceMetaPart_(parts, 'autoSubscribe', item.autoSubscribe);
+  pushBinanceMetaPart_(parts, 'canRedeemEarly', item.canRedeemEarly);
+  pushBinanceMetaPart_(parts, 'canFastRedemption', item.canFastRedemption);
+  pushBinanceMetaPart_(parts, 'purchaseTime', item.purchaseTime);
+  return parts.join('; ');
+}
+
+function normalizeBinanceTierApr_(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch (e) {
+    return '';
+  }
+}
+
+function pushBinanceMetaPart_(parts, label, value) {
+  if (value === null || value === undefined || value === '') return;
+  parts.push(`${label}=${value}`);
 }
 
 // ... fetchBinanceApi_ (Keep existing logic) ...
