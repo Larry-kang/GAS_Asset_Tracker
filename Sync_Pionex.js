@@ -301,11 +301,14 @@ function getPionexBalance() {
         });
       }
     } else {
+      const botPermissionDenied = isPionexPermissionDenied_(botListRes.raw);
       SyncManager.registerSourceCheck(result, {
         name: 'Bot Order List',
-        required: true,
+        required: !botPermissionDenied,
         success: false,
-        message: pionexStatus_(botListRes.raw)
+        message: botPermissionDenied
+          ? `Bot reading (Beta) permission missing. ${pionexStatus_(botListRes.raw)}`
+          : pionexStatus_(botListRes.raw)
       });
     }
 
@@ -526,6 +529,10 @@ function pionexStatus_(res) {
   const code = res.code || (res.result === true ? 'OK' : 'UNKNOWN');
   const msg = res.message || res.msg || 'Unknown error';
   return `Code: ${code}, Msg: ${msg}`;
+}
+
+function isPionexPermissionDenied_(res) {
+  return String(res && res.code || '').trim().toUpperCase() === 'PERMISSION_DENIED';
 }
 
 function buildPionexFuturesDetailLookup_(detail) {
