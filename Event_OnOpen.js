@@ -25,15 +25,13 @@ function onOpen() {
     .addItem('強制執行每日快照', 'Record_DailySnapshot');
 
   // --- [Data] 進階同步工具 ---
-  const dataMenu = ui.createMenu('進階同步工具')
-    .addItem('同步 - 幣安餘額', 'getBinanceBalance')
-    .addItem('同步 - OKX 餘額', 'getOkxBalance')
-    .addItem('同步 - Bitget 餘額', 'getBitgetBalance')
-    .addItem('同步 - 幣託餘額', 'getBitoProBalance')
-    .addItem('同步 - 派網餘額', 'getPionexBalance')
+  const dataMenu = ui.createMenu('進階同步工具');
+  ExchangeRegistry.getActive().forEach(function (entry) {
+    dataMenu.addItem(`同步 - ${entry.displayName}餘額`, entry.functionName);
+  });
+  dataMenu
     .addSeparator()
-    .addItem('更新 - 僅市價行情', 'updateAllPrices')
-    .addItem('更新 - 資產與貨幣對', 'syncAssets');
+    .addItem('更新 - 僅市價行情', 'updateAllPrices');
 
   const guardedTestMenu = createGuardedStagingTestMenu_(ui);
 

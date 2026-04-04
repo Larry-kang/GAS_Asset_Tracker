@@ -89,41 +89,17 @@ function syncAllAssets_() {
         LogService.cleanupOldLogs(7);
     }
 
-    // Binance
-    try {
-        if (typeof getBinanceBalance === 'function') {
-            getBinanceBalance();
-        } else {
-            console.warn("getBinanceBalance not found");
+    ExchangeRegistry.getActive().forEach(function (entry) {
+        const syncFn = globalThis[entry.functionName];
+        try {
+            if (typeof syncFn === 'function') {
+                syncFn();
+            } else {
+                console.warn(`${entry.functionName} not found`);
+            }
+        } catch (e) {
+            console.error(`${entry.moduleName} Sync Failed`, e);
         }
-    } catch (e) { console.error("Binance Sync Failed", e); }
-
-    // OKX
-    try {
-        if (typeof getOkxBalance === 'function') {
-            getOkxBalance();
-        } else {
-            console.warn("getOkxBalance not found");
-        }
-    } catch (e) { console.error("OKX Sync Failed", e); }
-
-    // Bitget
-    try {
-        if (typeof getBitgetBalance === 'function') {
-            getBitgetBalance();
-        } else {
-            console.warn("getBitgetBalance not found");
-        }
-    } catch (e) { console.error("Bitget Sync Failed", e); }
-
-    // Pionex
-    try {
-        if (typeof getPionexBalance === 'function') getPionexBalance();
-    } catch (e) { console.error("Pionex Sync Failed", e); }
-
-    // BitoPro
-    try {
-        if (typeof getBitoProBalance === 'function') getBitoProBalance();
-    } catch (e) { console.error("BitoPro Sync Failed", e); }
+    });
 }
 
