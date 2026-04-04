@@ -51,7 +51,9 @@ function runDailyCloseRoutine() {
         // We rebuild it to ensure we capture the state exactly as it is after sync
         let snapshotContext = null;
         try {
-            if (typeof buildContext === 'function') {
+            if (typeof buildFreshContext === 'function') {
+                snapshotContext = buildFreshContext();
+            } else if (typeof buildContext === 'function') {
                 snapshotContext = buildContext();
             }
         } catch (e) {

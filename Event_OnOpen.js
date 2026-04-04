@@ -35,11 +35,35 @@ function onOpen() {
     .addItem('更新 - 僅市價行情', 'updateAllPrices')
     .addItem('更新 - 資產與貨幣對', 'syncAssets');
 
+  const guardedTestMenu = createGuardedStagingTestMenu_(ui);
+
   menu.addSubMenu(sysMenu)
-    .addSubMenu(dataMenu)
-    .addSeparator()
+    .addSubMenu(dataMenu);
+
+  if (guardedTestMenu) {
+    menu.addSubMenu(guardedTestMenu);
+  }
+
+  menu.addSeparator()
     .addItem('緊急停止觸發器', 'stopScheduler')
     .addToUi();
+}
+
+function createGuardedStagingTestMenu_(ui) {
+  if (typeof SafeLedgerTestHarness === 'undefined' ||
+    !SafeLedgerTestHarness ||
+    typeof SafeLedgerTestHarness.getConfig_ !== 'function') {
+    return null;
+  }
+
+  const config = SafeLedgerTestHarness.getConfig_();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!config.enabled || !config.spreadsheetId || ss.getId() !== config.spreadsheetId) {
+    return null;
+  }
+
+  return ui.createMenu('Staging 驗證')
+    .addItem('執行 Guarded 測試套件', 'runSafeLedgerSyncTestSuiteUi');
 }
 
 /**

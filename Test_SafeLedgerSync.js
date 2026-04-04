@@ -12,6 +12,10 @@ const SafeLedgerTestHarness = {
   SPREADSHEET_ID_PROPERTY: 'SAFE_LEDGER_TEST_SPREADSHEET_ID',
   SHEET_PREFIX_PROPERTY: 'SAFE_LEDGER_TEST_PREFIX',
   DEFAULT_SHEET_PREFIX: '_TEST_',
+  BASE_CONTEXT_SHEET_NAMES: {
+    balance: Config.SHEET_NAMES.BALANCE_SHEET,
+    indicators: Config.SHEET_NAMES.INDICATORS
+  },
 
   getConfig_: function () {
     const props = PropertiesService.getScriptProperties();
@@ -52,7 +56,9 @@ const SafeLedgerTestHarness = {
       sheetNames: {
         ledger: `${config.prefix}Unified Assets`,
         status: `${config.prefix}Sync_Status`,
-        logs: `${config.prefix}System_Logs`
+        logs: `${config.prefix}System_Logs`,
+        balance: `${config.prefix}${this.BASE_CONTEXT_SHEET_NAMES.balance}`,
+        indicators: `${config.prefix}${this.BASE_CONTEXT_SHEET_NAMES.indicators}`
       }
     };
   },
@@ -78,6 +84,27 @@ const SafeLedgerTestHarness = {
       SyncManager.STATUS_SHEET_NAME = original.statusSheet;
       if (typeof LogService !== 'undefined' && LogService && original.logSheet) {
         LogService.SHEET_NAME = original.logSheet;
+      }
+    }
+  },
+
+  withContextSheets_: function (callback) {
+    const context = this.assertReady_();
+    const original = {
+      balanceSheet: Config.SHEET_NAMES.BALANCE_SHEET,
+      indicatorSheet: Config.SHEET_NAMES.INDICATORS
+    };
+
+    Config.SHEET_NAMES.BALANCE_SHEET = context.sheetNames.balance;
+    Config.SHEET_NAMES.INDICATORS = context.sheetNames.indicators;
+
+    try {
+      return callback(context);
+    } finally {
+      Config.SHEET_NAMES.BALANCE_SHEET = original.balanceSheet;
+      Config.SHEET_NAMES.INDICATORS = original.indicatorSheet;
+      if (typeof DataCache !== 'undefined' && DataCache && typeof DataCache.clear === 'function') {
+        DataCache.clear();
       }
     }
   },
@@ -174,7 +201,8 @@ function runSafeLedgerSyncTestSuite() {
     'testSyncManagerLockGuard',
     'testSyncStatusWrite',
     'testStaleAttemptGuard',
-    'testStandaloneStatusWriteUsesLock'
+    'testStandaloneStatusWriteUsesLock',
+    'testBuildFreshContextSeesUpdatedSheetData'
   ];
 
   testFns.forEach(name => {
@@ -224,6 +252,26 @@ function runSafeLedgerSyncTestSuite() {
     status: 'success',
     results: results
   };
+}
+
+function runSafeLedgerSyncTestSuiteUi() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    const result = runSafeLedgerSyncTestSuite();
+    ui.alert(
+      'Guarded 測試通過',
+      `已完成 ${result.results.length} 個測試案例，staging guarded suite 全數通過。`,
+      ui.ButtonSet.OK
+    );
+    return result;
+  } catch (e) {
+    ui.alert(
+      'Guarded 測試失敗',
+      e.message,
+      ui.ButtonSet.OK
+    );
+    throw e;
+  }
 }
 
 function testSyncManagerCommitSuccess() {
@@ -477,6 +525,78 @@ function testStandaloneStatusWriteUsesLock() {
       SyncManager.tryAcquireCommitLock_ = originalLockFn;
     }
   });
+}
+
+function testBuildFreshContextSeesUpdatedSheetData() {
+  return SafeLedgerTestHarness.withContextSheets_(function (context) {
+    setupContextFreshnessTestEnvironment_(context);
+
+    const firstContext = buildFreshContext();
+    assertSafeLedgerTest_(firstContext.market.btcPrice === 60000, 'Expected first fresh context to read initial BTC price.');
+    assertSafeLedgerTest_(firstContext.portfolioSummary.BTC === 100, 'Expected first fresh context to read initial BTC balance.');
+
+    const staleContext = buildContext();
+    assertSafeLedgerTest_(staleContext.market.btcPrice === 60000, 'Expected raw buildContext to reuse cached BTC price inside the same execution.');
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const indicatorSheet = ss.getSheetByName(context.sheetNames.indicators);
+    const balanceSheet = ss.getSheetByName(context.sheetNames.balance);
+
+    indicatorSheet.getRange(2, 2).setValue(65000);
+    balanceSheet.getRange(2, 3).setValue(150);
+    SpreadsheetApp.flush();
+
+    const secondContext = buildFreshContext();
+    assertSafeLedgerTest_(secondContext.market.btcPrice === 65000, 'Expected second fresh context to read updated BTC price.');
+    assertSafeLedgerTest_(secondContext.portfolioSummary.BTC === 150, 'Expected second fresh context to read updated BTC balance.');
+
+    return {
+      status: 'success',
+      message: 'Fresh context rebuild test passed.',
+      firstBtcPrice: firstContext.market.btcPrice,
+      secondBtcPrice: secondContext.market.btcPrice
+    };
+  });
+}
+
+function setupContextFreshnessTestEnvironment_(context) {
+  const ss = context.ss;
+  const balanceSheet = ensureSafeLedgerSheet_(ss, context.sheetNames.balance);
+  const indicatorSheet = ensureSafeLedgerSheet_(ss, context.sheetNames.indicators);
+
+  balanceSheet.clearContents();
+  indicatorSheet.clearContents();
+
+  balanceSheet.getRange(1, 1, 3, 4).setValues([
+    ['Ticker', 'Asset', 'Market_Value_TWD', 'Purpose'],
+    ['BTC', 'Bitcoin', 100, ''],
+    ['CASH_TWD', 'Cash', 50, '']
+  ]);
+
+  indicatorSheet.getRange(1, 1, 4, 2).setValues([
+    ['Indicator', 'Value'],
+    ['Current_BTC_Price', 60000],
+    ['SAP_Base_ATH', 70000],
+    ['MONTHLY_DEBT_COST', 10]
+  ]);
+
+  SpreadsheetApp.flush();
+  if (typeof DataCache !== 'undefined' && DataCache && typeof DataCache.clear === 'function') {
+    DataCache.clear();
+  }
+
+  return {
+    status: 'success',
+    message: 'Context freshness test sheets initialized.'
+  };
+}
+
+function ensureSafeLedgerSheet_(ss, sheetName) {
+  let sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+  }
+  return sheet;
 }
 
 function getSafeLedgerRows_(logicalSheetName) {

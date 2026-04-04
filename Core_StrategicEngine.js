@@ -28,8 +28,25 @@ const DataCache = {
       this._sheets[sheetName] = sheet.getDataRange().getValues();
     }
     return this._sheets[sheetName];
+  },
+  clear: function (sheetName) {
+    if (sheetName) {
+      delete this._sheets[sheetName];
+      return;
+    }
+    this._sheets = {};
   }
 };
+
+/**
+ * Rebuilds runtime context from fresh sheet reads.
+ * Use this at top-level entrypoints when the workbook may have changed since the
+ * previous context build in the same execution.
+ */
+function buildFreshContext() {
+  DataCache.clear();
+  return buildContext();
+}
 
 const RULES = [
   {
@@ -305,7 +322,7 @@ const RULES = [
 function showStrategicReportUI() {
   const ui = SpreadsheetApp.getUi();
   try {
-    const context = buildContext();
+    const context = buildFreshContext();
     let alerts = [];
     RULES.forEach(rule => { if (rule.condition(context)) { const action = rule.getAction(context); if (action) alerts.push(action); } });
 
@@ -339,7 +356,7 @@ function showStrategicReportUI() {
  */
 function runDailyInvestmentCheck() {
   try {
-    const context = buildContext();
+    const context = buildFreshContext();
     let alerts = [];
     RULES.forEach(rule => { if (rule.condition(context)) { const action = rule.getAction(context); if (action) alerts.push(action); } });
 
@@ -365,7 +382,7 @@ function runDailyInvestmentCheck() {
  */
 function runStrategicMonitor() {
   try {
-    const context = buildContext();
+    const context = buildFreshContext();
     updateDashboard(context);
 
     let alerts = [];
@@ -394,7 +411,7 @@ function runStrategicMonitor() {
  */
 function triggerManualReport() {
   try {
-    const context = buildContext();
+    const context = buildFreshContext();
     let alerts = [];
     RULES.forEach(rule => { if (rule.condition(context)) { const action = rule.getAction(context); if (action) alerts.push(action); } });
 
