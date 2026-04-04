@@ -1,6 +1,6 @@
 // =======================================================
 // --- Pionex Service Layer (v4.0 - Unified Ledger)
-// --- Archive mirror. GAS deploy uses /Sync_Pionex.js at repo root.
+// --- Deployable root copy for GAS / clasp push
 // --- Modernized to latest documented Spot / Futures / Earn / Bot APIs
 // =======================================================
 
