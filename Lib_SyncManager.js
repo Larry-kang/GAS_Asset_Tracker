@@ -17,6 +17,7 @@ const SyncManager = {
     LEDGER_HEADERS: ["Exchange", "Currency", "Amount", "Type", "Status", "Meta", "Updated"],
     STATUS_SHEET_NAME: "Sync_Status",
     STATUS_HEADERS: ["Exchange", "Last Attempt", "Last Success", "Status", "Rows", "Message", "Updated"],
+    MIN_ABS_ASSET_AMOUNT: 1e-8,
 
     /**
      * [Core] Execution Wrapper
@@ -55,6 +56,10 @@ const SyncManager = {
             optionalChecks: [],
             errors: [],
             warnings: [],
+            normalization: {
+                droppedDust: 0,
+                droppedInvalid: 0
+            },
             rowCount: 0,
             startedAt: new Date().toISOString(),
             finishedAt: ""
@@ -91,6 +96,7 @@ const SyncManager = {
      * @returns {Object}
      */
     finalizeResult: function (result) {
+        this.normalizeAssets_(result);
         const requiredFailed = result.requiredChecks.some(check => !check.success);
         result.rowCount = result.assets.length;
         result.status = requiredFailed ? "failed" : "complete";
@@ -186,6 +192,10 @@ const SyncManager = {
     commitExchangeResult: function (ss, moduleName, result) {
         this.finalizeResult(result);
         const attemptAt = this.formatStatusTimestamp_(result.startedAt);
+
+        if (result.normalization && result.normalization.droppedDust > 0) {
+            this.log("INFO", `[${result.exchange}] Filtered ${result.normalization.droppedDust} dust rows.`, moduleName);
+        }
 
         if (result.status !== "complete") {
             this.recordSyncStatus(ss, result, { lockTimeoutMs: 10000 });
@@ -361,6 +371,59 @@ const SyncManager = {
         console.log(`[${level}] [${context}] ${message}`);
         if (typeof LogService !== 'undefined' && LogService.log) {
             LogService.log(level, message, context);
+        }
+    },
+
+    /**
+     * Normalizes exchange asset rows before row counting / commit.
+     * Shared here so all exchanges follow the same dust + shape rules.
+     * @param {Object} result
+     */
+    normalizeAssets_: function (result) {
+        const normalizedAssets = [];
+        let droppedDust = 0;
+        let droppedInvalid = 0;
+
+        (result.assets || []).forEach(asset => {
+            if (!asset) {
+                droppedInvalid++;
+                return;
+            }
+
+            const ccy = String(asset.ccy || "").trim().toUpperCase();
+            const amt = typeof asset.amt === "number" ? asset.amt : parseFloat(asset.amt);
+            const type = String(asset.type || "").trim();
+            const status = String(asset.status || "").trim();
+            const meta = asset.meta === null || asset.meta === undefined
+                ? ""
+                : String(asset.meta).trim();
+
+            if (!ccy || !type || !isFinite(amt)) {
+                droppedInvalid++;
+                return;
+            }
+
+            if (amt === 0 || Math.abs(amt) < this.MIN_ABS_ASSET_AMOUNT) {
+                droppedDust++;
+                return;
+            }
+
+            normalizedAssets.push({
+                ccy: ccy,
+                amt: amt,
+                type: type,
+                status: status,
+                meta: meta
+            });
+        });
+
+        result.assets = normalizedAssets;
+        result.normalization = {
+            droppedDust: droppedDust,
+            droppedInvalid: droppedInvalid
+        };
+        if (droppedInvalid > 0) {
+            result.warnings.push(`Dropped ${droppedInvalid} invalid asset rows.`);
         }
     }
 };

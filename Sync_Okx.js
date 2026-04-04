@@ -63,7 +63,13 @@ function getOkxBalance() {
     let earnRows = 0;
     if (earnRes.success && earnRes.data) {
       earnRes.data.forEach(item => {
-        result.assets.push({ ccy: item.ccy, amt: item.amt, type: 'Earn', status: 'Staked' });
+        result.assets.push({
+          ccy: item.ccy,
+          amt: item.amt,
+          type: 'Earn',
+          status: 'Staked',
+          meta: buildOkxEarnMeta_(item)
+        });
         earnRows++;
       });
       SyncManager.registerSourceCheck(result, { name: 'Earn', required: true, success: true, rows: earnRows });
@@ -218,7 +224,17 @@ function fetchOkxEarn_(baseUrl, apiKey, apiSecret, apiPassphrase) {
     const rawList = [];
     if (res.data) {
       res.data.forEach(b => {
-        if (parseFloat(b.amt) > 0) rawList.push({ ccy: b.ccy, amt: parseFloat(b.amt) });
+        if (parseFloat(b.amt) > 0) {
+          rawList.push({
+            ccy: b.ccy,
+            amt: parseFloat(b.amt),
+            rate: b.rate,
+            loanAmt: b.loanAmt,
+            pendingAmt: b.pendingAmt,
+            earnings: b.earnings,
+            redemptAmt: b.redemptAmt
+          });
+        }
       });
     }
     return { success: true, data: rawList };
@@ -432,6 +448,18 @@ function buildOkxStakingMeta_(item) {
   pushOkxMetaPart_(parts, 'state', item.state);
   pushOkxMetaPart_(parts, 'purchasedTime', item.purchasedTime);
   pushOkxMetaPart_(parts, 'estSettlementTime', item.estSettlementTime);
+
+  return parts.join('; ');
+}
+
+function buildOkxEarnMeta_(item) {
+  const parts = [];
+
+  pushOkxMetaPart_(parts, 'rate', item.rate);
+  pushOkxMetaPart_(parts, 'loanAmt', item.loanAmt);
+  pushOkxMetaPart_(parts, 'pendingAmt', item.pendingAmt);
+  pushOkxMetaPart_(parts, 'earnings', item.earnings);
+  pushOkxMetaPart_(parts, 'redemptAmt', item.redemptAmt);
 
   return parts.join('; ');
 }
