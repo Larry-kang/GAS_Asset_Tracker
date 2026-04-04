@@ -11,23 +11,12 @@ const Settings = {
      * @param {*} defaultValue 
      * @returns {*}
      */
-    _cache: null,
-
-    /**
-     * Get a script property by key
-     * @param {string} key 
-     * @param {*} defaultValue 
-     * @returns {*}
-     */
     get: function (key, defaultValue = null) {
-        // Build cache on first call within this execution.
-        // Do not use cross-execution ScriptCache here, otherwise manual
-        // Script Properties edits in GAS UI may stay stale for up to 30 min.
-        if (this._cache === null) {
-            this._cache = PropertiesService.getScriptProperties().getProperties();
-        }
-
-        const value = this._cache[key];
+        // Always read Script Properties fresh.
+        // Apps Script V8 executes files in global scope, and warm runtimes can
+        // preserve global objects between executions. Caching settings in a
+        // global object can therefore leak stale values such as old tunnel URLs.
+        const value = PropertiesService.getScriptProperties().getProperty(key);
         if (value === null || value === undefined) return defaultValue;
         return value;
     },
@@ -54,9 +43,6 @@ const Settings = {
         } else {
             PropertiesService.getScriptProperties().setProperty(key, value.toString());
         }
-
-        // Invalidate execution-level cache
-        this._cache = null;
     },
 
     /**
