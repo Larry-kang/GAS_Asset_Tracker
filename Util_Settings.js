@@ -20,16 +20,11 @@ const Settings = {
      * @returns {*}
      */
     get: function (key, defaultValue = null) {
-        // Build cache on first call within this execution
+        // Build cache on first call within this execution.
+        // Do not use cross-execution ScriptCache here, otherwise manual
+        // Script Properties edits in GAS UI may stay stale for up to 30 min.
         if (this._cache === null) {
-            // Priority 1: L1/L2 via ScriptCache
-            this._cache = ScriptCache.get('GLOBAL_PROPERTIES_SET');
-
-            // Priority 2: Origin (PropertiesService)
-            if (!this._cache) {
-                this._cache = PropertiesService.getScriptProperties().getProperties();
-                ScriptCache.put('GLOBAL_PROPERTIES_SET', this._cache, 1800); // 30 min cache
-            }
+            this._cache = PropertiesService.getScriptProperties().getProperties();
         }
 
         const value = this._cache[key];
@@ -62,9 +57,6 @@ const Settings = {
 
         // Invalidate execution-level cache
         this._cache = null;
-
-        // Invalidate global script cache
-        ScriptCache.remove('GLOBAL_PROPERTIES_SET');
     },
 
     /**
