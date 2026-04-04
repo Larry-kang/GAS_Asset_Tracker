@@ -10,8 +10,11 @@ function getBybitBalance() {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const result = SyncManager.createResult("Bybit");
     const creds = Credentials.get('BYBIT');
-    const { apiKey, apiSecret } = creds;
-    const baseUrl = 'https://api.bybit.com';
+    const { apiKey, apiSecret, bridgeV2Url, bridgeV2Password } = creds;
+    const resolvedBridgeUrl = normalizeBybitBridgeUrl_(bridgeV2Url);
+    const useBridge = !!resolvedBridgeUrl;
+    const baseUrl = useBridge ? resolvedBridgeUrl : 'https://api.bybit.com';
+    const proxyPassword = useBridge ? bridgeV2Password : '';
 
     if (!Credentials.isValid(creds)) {
       SyncManager.registerSourceCheck(result, {
@@ -23,7 +26,25 @@ function getBybitBalance() {
       return SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
     }
 
-    const accountInfoRes = fetchBybitAccountInfo_(baseUrl, apiKey, apiSecret);
+    if (useBridge && !proxyPassword) {
+      SyncManager.registerSourceCheck(result, {
+        name: 'Bridge V2',
+        required: true,
+        success: false,
+        message: 'Missing BRIDGE_V2_PASSWORD'
+      });
+      return SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
+    }
+
+    SyncManager.registerSourceCheck(result, {
+      name: 'Transport',
+      required: false,
+      success: true,
+      rows: 1,
+      message: useBridge ? 'Using local-bridge V2' : 'Using direct Bybit API'
+    });
+
+    const accountInfoRes = fetchBybitAccountInfo_(baseUrl, apiKey, apiSecret, proxyPassword);
     const accountInfo = accountInfoRes.success ? (accountInfoRes.data || {}) : null;
     SyncManager.registerSourceCheck(result, {
       name: 'Account Info',
@@ -56,7 +77,7 @@ function getBybitBalance() {
     });
 
     // A. Unified Wallet
-    const walletRes = fetchBybitWalletBalance_(baseUrl, apiKey, apiSecret);
+    const walletRes = fetchBybitWalletBalance_(baseUrl, apiKey, apiSecret, proxyPassword);
     let walletRows = 0;
     if (walletRes.success && walletRes.data) {
       (walletRes.data.coins || []).forEach(item => {
@@ -119,7 +140,7 @@ function getBybitBalance() {
     }
 
     // B. Funding Account
-    const fundingRes = fetchBybitFundingBalances_(baseUrl, apiKey, apiSecret);
+    const fundingRes = fetchBybitFundingBalances_(baseUrl, apiKey, apiSecret, proxyPassword);
     let fundingRows = 0;
     if (fundingRes.success && fundingRes.data) {
       fundingRes.data.forEach(item => {
@@ -171,8 +192,8 @@ function getBybitBalance() {
     }
 
     // C. Positions
-    const linearPositionsRes = fetchBybitPositionsForCategory_(baseUrl, apiKey, apiSecret, 'linear', instrumentMap.linear);
-    const inversePositionsRes = fetchBybitPositionsForCategory_(baseUrl, apiKey, apiSecret, 'inverse', instrumentMap.inverse);
+    const linearPositionsRes = fetchBybitPositionsForCategory_(baseUrl, apiKey, apiSecret, proxyPassword, 'linear', instrumentMap.linear);
+    const inversePositionsRes = fetchBybitPositionsForCategory_(baseUrl, apiKey, apiSecret, proxyPassword, 'inverse', instrumentMap.inverse);
     let positionRows = 0;
     if (linearPositionsRes.success && inversePositionsRes.success) {
       linearPositionsRes.data.concat(inversePositionsRes.data).forEach(item => {
@@ -204,8 +225,8 @@ function getBybitBalance() {
     }
 
     // D. Earn Positions
-    const flexibleEarnRes = fetchBybitEarnPositions_(baseUrl, apiKey, apiSecret, 'FlexibleSaving');
-    const onChainEarnRes = fetchBybitEarnPositions_(baseUrl, apiKey, apiSecret, 'OnChain');
+    const flexibleEarnRes = fetchBybitEarnPositions_(baseUrl, apiKey, apiSecret, proxyPassword, 'FlexibleSaving');
+    const onChainEarnRes = fetchBybitEarnPositions_(baseUrl, apiKey, apiSecret, proxyPassword, 'OnChain');
     let earnRows = 0;
     if (flexibleEarnRes.success && onChainEarnRes.success) {
       flexibleEarnRes.data.concat(onChainEarnRes.data).forEach(item => {
@@ -244,16 +265,16 @@ function getBybitBalance() {
   });
 }
 
-function fetchBybitAccountInfo_(baseUrl, apiKey, apiSecret) {
-  const res = fetchBybitPrivateApi_(baseUrl, '/v5/account/info', {}, apiKey, apiSecret);
+function fetchBybitAccountInfo_(baseUrl, apiKey, apiSecret, proxyPassword) {
+  const res = fetchBybitPrivateApi_(baseUrl, '/v5/account/info', {}, apiKey, apiSecret, proxyPassword);
   if (!res.success) return res;
   return { success: true, data: res.data || {} };
 }
 
-function fetchBybitWalletBalance_(baseUrl, apiKey, apiSecret) {
+function fetchBybitWalletBalance_(baseUrl, apiKey, apiSecret, proxyPassword) {
   const res = fetchBybitPrivateApi_(baseUrl, '/v5/account/wallet-balance', {
     accountType: 'UNIFIED'
-  }, apiKey, apiSecret);
+  }, apiKey, apiSecret, proxyPassword);
   if (!res.success) return res;
 
   const firstAccount = Array.isArray(res.data.list) ? res.data.list[0] : null;
@@ -266,10 +287,10 @@ function fetchBybitWalletBalance_(baseUrl, apiKey, apiSecret) {
   };
 }
 
-function fetchBybitFundingBalances_(baseUrl, apiKey, apiSecret) {
+function fetchBybitFundingBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
   const res = fetchBybitPrivateApi_(baseUrl, '/v5/asset/transfer/query-account-coins-balance', {
     accountType: 'FUND'
-  }, apiKey, apiSecret);
+  }, apiKey, apiSecret, proxyPassword);
   if (!res.success) return res;
 
   return {
@@ -278,14 +299,14 @@ function fetchBybitFundingBalances_(baseUrl, apiKey, apiSecret) {
   };
 }
 
-function fetchBybitPositionsForCategory_(baseUrl, apiKey, apiSecret, category, instrumentBucket) {
+function fetchBybitPositionsForCategory_(baseUrl, apiKey, apiSecret, proxyPassword, category, instrumentBucket) {
   const bucket = instrumentBucket || createBybitInstrumentBucket_();
   const rawPositions = [];
 
   if (category === 'linear') {
     const settleCoins = bucket.settleCoins.length > 0 ? bucket.settleCoins : ['USDT', 'USDC'];
     settleCoins.forEach(settleCoin => {
-      const res = fetchBybitPositionPageSet_(baseUrl, apiKey, apiSecret, {
+      const res = fetchBybitPositionPageSet_(baseUrl, apiKey, apiSecret, proxyPassword, {
         category: 'linear',
         settleCoin: settleCoin
       });
@@ -296,7 +317,7 @@ function fetchBybitPositionsForCategory_(baseUrl, apiKey, apiSecret, category, i
       rawPositions.push.apply(rawPositions, res.data || []);
     });
   } else {
-    const res = fetchBybitPositionPageSet_(baseUrl, apiKey, apiSecret, {
+    const res = fetchBybitPositionPageSet_(baseUrl, apiKey, apiSecret, proxyPassword, {
       category: 'inverse'
     });
     if (!res.success) return res;
@@ -320,7 +341,7 @@ function fetchBybitPositionsForCategory_(baseUrl, apiKey, apiSecret, category, i
   };
 }
 
-function fetchBybitPositionPageSet_(baseUrl, apiKey, apiSecret, params) {
+function fetchBybitPositionPageSet_(baseUrl, apiKey, apiSecret, proxyPassword, params) {
   const rows = [];
   let cursor = '';
 
@@ -328,7 +349,7 @@ function fetchBybitPositionPageSet_(baseUrl, apiKey, apiSecret, params) {
     const query = Object.assign({}, params, { limit: 200 });
     if (cursor) query.cursor = cursor;
 
-    const res = fetchBybitPrivateApi_(baseUrl, '/v5/position/list', query, apiKey, apiSecret);
+    const res = fetchBybitPrivateApi_(baseUrl, '/v5/position/list', query, apiKey, apiSecret, proxyPassword);
     if (!res.success) return res;
 
     const data = res.data || {};
@@ -342,8 +363,8 @@ function fetchBybitPositionPageSet_(baseUrl, apiKey, apiSecret, params) {
   return { success: true, data: rows };
 }
 
-function fetchBybitEarnPositions_(baseUrl, apiKey, apiSecret, category) {
-  const res = fetchBybitPrivateApi_(baseUrl, '/v5/earn/position', { category: category }, apiKey, apiSecret);
+function fetchBybitEarnPositions_(baseUrl, apiKey, apiSecret, proxyPassword, category) {
+  const res = fetchBybitPrivateApi_(baseUrl, '/v5/earn/position', { category: category }, apiKey, apiSecret, proxyPassword);
   if (!res.success) return res;
 
   const list = res.data && Array.isArray(res.data.list) ? res.data.list : [];
@@ -435,7 +456,7 @@ function fetchBybitInstrumentBucket_(baseUrl, category) {
   return { success: true, data: bucket };
 }
 
-function fetchBybitPrivateApi_(baseUrl, endpoint, params, apiKey, apiSecret) {
+function fetchBybitPrivateApi_(baseUrl, endpoint, params, apiKey, apiSecret, proxyPassword) {
   const recvWindow = '10000';
   const timestamp = String(Date.now());
   const queryString = buildBybitQueryString_(params || {});
@@ -457,6 +478,10 @@ function fetchBybitPrivateApi_(baseUrl, endpoint, params, apiKey, apiSecret) {
     },
     muteHttpExceptions: true
   };
+
+  if (proxyPassword) {
+    options.headers['x-proxy-auth'] = proxyPassword;
+  }
 
   return fetchBybitApiResponse_(url, options);
 }
@@ -694,6 +719,14 @@ function formatBybitTimestamp_(value) {
 function truncateBybitMessage_(text) {
   const clean = String(text || '').replace(/\s+/g, ' ').trim();
   return clean.length > 220 ? clean.slice(0, 217) + '...' : clean;
+}
+
+function normalizeBybitBridgeUrl_(value) {
+  const text = String(value || '').trim();
+  if (!/^https?:\/\//i.test(text)) return '';
+  const normalized = text.replace(/\/+$/, '');
+  if (/\/bybit$/i.test(normalized)) return normalized;
+  return normalized + '/bybit';
 }
 
 function safeParseBybitJson_(text) {
