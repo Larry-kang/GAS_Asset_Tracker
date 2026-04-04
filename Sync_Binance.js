@@ -31,6 +31,26 @@ function getBinanceBalance() {
       return SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
     }
 
+    const userAssetRes = fetchUserAssets_(baseUrl, apiKey, apiSecret, proxyPassword);
+    const userAssetLookup = userAssetRes.success
+      ? buildBinanceUserAssetLookup_(userAssetRes.data || [])
+      : {};
+    if (userAssetRes.success) {
+      SyncManager.registerSourceCheck(result, {
+        name: 'User Asset',
+        required: false,
+        success: true,
+        rows: (userAssetRes.data || []).length
+      });
+    } else {
+      SyncManager.registerSourceCheck(result, {
+        name: 'User Asset',
+        required: false,
+        success: false,
+        message: 'User asset enrichment fetch failed'
+      });
+    }
+
     // A. Spot
     const spotRes = fetchSpotBalances_(baseUrl, apiKey, apiSecret, proxyPassword);
     let spotRows = 0;
@@ -41,12 +61,24 @@ function getBinanceBalance() {
 
         // Free
         if (item.free > 0) {
-          result.assets.push({ ccy: item.asset, amt: item.free, type: 'Spot', status: 'Available' });
+          result.assets.push({
+            ccy: item.asset,
+            amt: item.free,
+            type: 'Spot',
+            status: 'Available',
+            meta: buildBinanceWalletMeta_(userAssetLookup[item.asset])
+          });
           spotRows++;
         }
         // Locked
         if (item.locked > 0) {
-          result.assets.push({ ccy: item.asset, amt: item.locked, type: 'Spot', status: 'Frozen' });
+          result.assets.push({
+            ccy: item.asset,
+            amt: item.locked,
+            type: 'Spot',
+            status: 'Frozen',
+            meta: buildBinanceWalletMeta_(userAssetLookup[item.asset])
+          });
           spotRows++;
         }
       });
@@ -66,11 +98,23 @@ function getBinanceBalance() {
     if (fundingRes.success && fundingRes.data) {
       fundingRes.data.forEach(item => {
         if (item.free > 0) {
-          result.assets.push({ ccy: item.asset, amt: item.free, type: 'Funding', status: 'Available' });
+          result.assets.push({
+            ccy: item.asset,
+            amt: item.free,
+            type: 'Funding',
+            status: 'Available',
+            meta: buildBinanceWalletMeta_(item)
+          });
           fundingRows++;
         }
         if (item.locked > 0) {
-          result.assets.push({ ccy: item.asset, amt: item.locked, type: 'Funding', status: 'Frozen' });
+          result.assets.push({
+            ccy: item.asset,
+            amt: item.locked,
+            type: 'Funding',
+            status: 'Frozen',
+            meta: buildBinanceWalletMeta_(item)
+          });
           fundingRows++;
         }
       });
@@ -281,7 +325,7 @@ function getBinanceBalance() {
 // --- Helpers (Modified to return raw lists instead of Map) ---
 
 function fetchSpotBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
-  const res = fetchBinanceApi_(baseUrl, '/api/v3/account', {}, apiKey, apiSecret, proxyPassword);
+  const res = fetchBinanceApi_(baseUrl, '/api/v3/account', { omitZeroBalances: true }, apiKey, apiSecret, proxyPassword);
   if (res.code !== "0") return { success: false };
 
   // Return Raw Array: [{asset, free, locked}]
@@ -300,7 +344,7 @@ function fetchSpotBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
 
 function fetchFundingBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
   // Funding API requires POST
-  const res = fetchBinanceApi_(baseUrl, '/sapi/v1/asset/get-funding-asset', {}, apiKey, apiSecret, proxyPassword, 'POST');
+  const res = fetchBinanceApi_(baseUrl, '/sapi/v1/asset/get-funding-asset', { needBtcValuation: true }, apiKey, apiSecret, proxyPassword, 'POST');
   if (res.code !== "0") return { success: false };
 
   const rawList = [];
@@ -311,11 +355,34 @@ function fetchFundingBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
       const freeze = parseFloat(item.freeze) || 0;
       const totalLocked = locked + freeze;
       if (free + totalLocked > 0) {
-        rawList.push({ asset: item.asset, free: free, locked: totalLocked });
+        rawList.push({
+          asset: item.asset,
+          free: free,
+          locked: totalLocked,
+          freeze: freeze,
+          withdrawing: item.withdrawing,
+          btcValuation: item.btcValuation
+        });
       }
     });
   }
   return { success: true, data: rawList };
+}
+
+function fetchUserAssets_(baseUrl, apiKey, apiSecret, proxyPassword) {
+  const res = fetchBinanceApi_(baseUrl, '/sapi/v3/asset/getUserAsset', { needBtcValuation: true }, apiKey, apiSecret, proxyPassword, 'POST');
+  if (res.code !== "0") return { success: false, code: res.code };
+
+  return {
+    success: true,
+    data: Array.isArray(res.data) ? res.data.map(item => ({
+      asset: item.asset,
+      freeze: item.freeze,
+      withdrawing: item.withdrawing,
+      btcValuation: item.btcValuation,
+      ipoable: item.ipoable
+    })) : []
+  };
 }
 
 function fetchUsdmFuturesAccount_(baseUrl, apiKey, apiSecret, proxyPassword) {
@@ -603,6 +670,33 @@ function binanceBaseFromSymbol_(symbol) {
     }
   }
   return text;
+}
+
+function buildBinanceUserAssetLookup_(rows) {
+  const lookup = {};
+  (rows || []).forEach(item => {
+    const asset = String(item.asset || '').trim().toUpperCase();
+    if (!asset) return;
+    lookup[asset] = item;
+  });
+  return lookup;
+}
+
+function buildBinanceWalletMeta_(item) {
+  if (!item) return '';
+
+  const parts = [];
+  pushBinanceNumericMetaIfNonZero_(parts, 'freeze', item.freeze);
+  pushBinanceNumericMetaIfNonZero_(parts, 'withdrawing', item.withdrawing);
+  pushBinanceNumericMetaIfNonZero_(parts, 'btcValuation', item.btcValuation);
+  pushBinanceNumericMetaIfNonZero_(parts, 'ipoable', item.ipoable);
+  return parts.join('; ');
+}
+
+function pushBinanceNumericMetaIfNonZero_(parts, label, value) {
+  const num = parseFloat(value);
+  if (!isFinite(num) || num === 0) return;
+  parts.push(`${label}=${value}`);
 }
 
 // ... fetchBinanceApi_ (Keep existing logic) ...
