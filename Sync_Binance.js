@@ -85,14 +85,33 @@ function getBinanceBalance() {
     }
 
     // C. USD-M Futures
-    const usdmRes = fetchUsdmFuturesBalances_(baseUrl, apiKey, apiSecret, proxyPassword);
+    const usdmRes = fetchUsdmFuturesAccount_(baseUrl, apiKey, apiSecret, proxyPassword);
     let usdmRows = 0;
     if (usdmRes.success && usdmRes.data) {
-      usdmRes.data.forEach(item => {
-        if (item.balance > 0) {
-          result.assets.push({ ccy: item.asset, amt: item.balance, type: 'USD-M Futures', status: 'Equity' });
+      (usdmRes.data.assets || []).forEach(item => {
+        if (item.walletBalance > 0) {
+          result.assets.push({
+            ccy: item.asset,
+            amt: item.walletBalance,
+            type: 'USD-M Futures',
+            status: 'Equity',
+            meta: buildBinanceFuturesAssetMeta_(item)
+          });
           usdmRows++;
         }
+      });
+      (usdmRes.data.positions || []).forEach(item => {
+        const positionAmt = parseFloat(item.positionAmt);
+        if (positionAmt === 0) return;
+
+        result.assets.push({
+          ccy: binanceBaseFromSymbol_(item.symbol),
+          amt: positionAmt,
+          type: 'Positions',
+          status: 'Position',
+          meta: buildBinanceFuturesPositionMeta_('USD-M Futures', item)
+        });
+        usdmRows++;
       });
       SyncManager.registerSourceCheck(result, { name: 'USD-M Futures', required: false, success: true, rows: usdmRows });
     } else if (usdmRes.code === "-403") {
@@ -112,14 +131,33 @@ function getBinanceBalance() {
     }
 
     // D. COIN-M Futures
-    const coinmRes = fetchCoinmFuturesBalances_(baseUrl, apiKey, apiSecret, proxyPassword);
+    const coinmRes = fetchCoinmFuturesAccount_(baseUrl, apiKey, apiSecret, proxyPassword);
     let coinmRows = 0;
     if (coinmRes.success && coinmRes.data) {
-      coinmRes.data.forEach(item => {
-        if (item.balance > 0) {
-          result.assets.push({ ccy: item.asset, amt: item.balance, type: 'COIN-M Futures', status: 'Equity' });
+      (coinmRes.data.assets || []).forEach(item => {
+        if (item.walletBalance > 0) {
+          result.assets.push({
+            ccy: item.asset,
+            amt: item.walletBalance,
+            type: 'COIN-M Futures',
+            status: 'Equity',
+            meta: buildBinanceFuturesAssetMeta_(item)
+          });
           coinmRows++;
         }
+      });
+      (coinmRes.data.positions || []).forEach(item => {
+        const positionAmt = parseFloat(item.positionAmt);
+        if (positionAmt === 0) return;
+
+        result.assets.push({
+          ccy: binanceBaseFromSymbol_(item.symbol),
+          amt: positionAmt,
+          type: 'Positions',
+          status: 'Position',
+          meta: buildBinanceFuturesPositionMeta_('COIN-M Futures', item)
+        });
+        coinmRows++;
       });
       SyncManager.registerSourceCheck(result, { name: 'COIN-M Futures', required: false, success: true, rows: coinmRows });
     } else if (coinmRes.code === "-403") {
@@ -280,36 +318,59 @@ function fetchFundingBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
   return { success: true, data: rawList };
 }
 
-function fetchUsdmFuturesBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
-  const res = fetchBinanceApi_(baseUrl, '/fapi/v2/balance', {}, apiKey, apiSecret, proxyPassword);
+function fetchUsdmFuturesAccount_(baseUrl, apiKey, apiSecret, proxyPassword) {
+  const res = fetchBinanceApi_(baseUrl, '/fapi/v3/account', {}, apiKey, apiSecret, proxyPassword);
   if (res.code !== "0") return { success: false, code: res.code };
 
-  const rawList = [];
-  if (Array.isArray(res.data)) {
-    res.data.forEach(item => {
-      const balance = parseFloat(item.balance);
-      if (balance > 0) {
-        rawList.push({ asset: item.asset, balance });
-      }
-    });
-  }
-  return { success: true, data: rawList };
+  return {
+    success: true,
+    data: {
+      assets: Array.isArray(res.data && res.data.assets) ? res.data.assets.map(item => ({
+        asset: item.asset,
+        walletBalance: parseFloat(item.walletBalance) || 0,
+        unrealizedProfit: item.unrealizedProfit,
+        marginBalance: item.marginBalance,
+        maintMargin: item.maintMargin,
+        initialMargin: item.initialMargin,
+        positionInitialMargin: item.positionInitialMargin,
+        openOrderInitialMargin: item.openOrderInitialMargin,
+        crossWalletBalance: item.crossWalletBalance,
+        crossUnPnl: item.crossUnPnl,
+        availableBalance: item.availableBalance,
+        maxWithdrawAmount: item.maxWithdrawAmount,
+        marginAvailable: item.marginAvailable,
+        updateTime: item.updateTime
+      })) : [],
+      positions: Array.isArray(res.data && res.data.positions) ? res.data.positions : []
+    }
+  };
 }
 
-function fetchCoinmFuturesBalances_(baseUrl, apiKey, apiSecret, proxyPassword) {
-  const res = fetchBinanceApi_(baseUrl, '/dapi/v1/balance', {}, apiKey, apiSecret, proxyPassword);
+function fetchCoinmFuturesAccount_(baseUrl, apiKey, apiSecret, proxyPassword) {
+  const res = fetchBinanceApi_(baseUrl, '/dapi/v1/account', {}, apiKey, apiSecret, proxyPassword);
   if (res.code !== "0") return { success: false, code: res.code };
 
-  const rawList = [];
-  if (Array.isArray(res.data)) {
-    res.data.forEach(item => {
-      const balance = parseFloat(item.balance);
-      if (balance > 0) {
-        rawList.push({ asset: item.asset, balance });
-      }
-    });
-  }
-  return { success: true, data: rawList };
+  return {
+    success: true,
+    data: {
+      assets: Array.isArray(res.data && res.data.assets) ? res.data.assets.map(item => ({
+        asset: item.asset,
+        walletBalance: parseFloat(item.walletBalance) || 0,
+        unrealizedProfit: item.unrealizedProfit,
+        marginBalance: item.marginBalance,
+        maintMargin: item.maintMargin,
+        initialMargin: item.initialMargin,
+        positionInitialMargin: item.positionInitialMargin,
+        openOrderInitialMargin: item.openOrderInitialMargin,
+        crossWalletBalance: item.crossWalletBalance,
+        crossUnPnl: item.crossUnPnl,
+        availableBalance: item.availableBalance,
+        maxWithdrawAmount: item.maxWithdrawAmount,
+        updateTime: item.updateTime
+      })) : [],
+      positions: Array.isArray(res.data && res.data.positions) ? res.data.positions : []
+    }
+  };
 }
 
 function fetchFlexibleEarnPositions_(baseUrl, apiKey, apiSecret, proxyPassword) {
@@ -431,7 +492,7 @@ function fetchLoanOrders_(baseUrl, apiKey, apiSecret, proxyPassword) {
 function buildBinanceFlexibleEarnMeta_(item) {
   const parts = [];
   pushBinanceMetaPart_(parts, 'productId', item.productId);
-  pushBinanceMetaPart_(parts, 'latestAPR', item.latestAnnualPercentageRate);
+  pushBinanceMetaPart_(parts, 'latestAPR', formatBinanceAnnualRatePercent_(item.latestAnnualPercentageRate));
   pushBinanceMetaPart_(parts, 'tierAPR', normalizeBinanceTierApr_(item.tierAnnualPercentageRate));
   pushBinanceMetaPart_(parts, 'autoSubscribe', item.autoSubscribe);
   pushBinanceMetaPart_(parts, 'canRedeem', item.canRedeem);
@@ -447,7 +508,7 @@ function buildBinanceLockedEarnMeta_(item) {
   pushBinanceMetaPart_(parts, 'projectId', item.projectId);
   pushBinanceMetaPart_(parts, 'positionId', item.positionId);
   pushBinanceMetaPart_(parts, 'duration', item.duration);
-  pushBinanceMetaPart_(parts, 'APY', item.APY);
+  pushBinanceMetaPart_(parts, 'APY', formatBinanceAnnualRatePercent_(item.APY));
   pushBinanceMetaPart_(parts, 'rewardAsset', item.rewardAsset);
   pushBinanceMetaPart_(parts, 'rewardAmt', item.rewardAmt);
   pushBinanceMetaPart_(parts, 'status', item.status);
@@ -463,15 +524,85 @@ function normalizeBinanceTierApr_(value) {
   if (!value) return '';
   if (typeof value === 'string') return value;
   try {
-    return JSON.stringify(value);
+    const formatted = {};
+    Object.keys(value).forEach(key => {
+      formatted[key] = formatBinanceAnnualRatePercent_(value[key]);
+    });
+    return JSON.stringify(formatted);
   } catch (e) {
     return '';
   }
 }
 
+function formatBinanceAnnualRatePercent_(value) {
+  const num = parseFloat(value);
+  if (!isFinite(num)) return value;
+  return trimBinanceNumber_((num * 100).toFixed(4)) + '%';
+}
+
+function trimBinanceNumber_(value) {
+  return String(value).replace(/\.?0+$/, '');
+}
+
 function pushBinanceMetaPart_(parts, label, value) {
   if (value === null || value === undefined || value === '') return;
   parts.push(`${label}=${value}`);
+}
+
+function buildBinanceFuturesAssetMeta_(item) {
+  const parts = [];
+  pushBinanceMetaPart_(parts, 'walletBalance', item.walletBalance);
+  pushBinanceMetaPart_(parts, 'marginBalance', item.marginBalance);
+  pushBinanceMetaPart_(parts, 'availableBalance', item.availableBalance);
+  pushBinanceMetaPart_(parts, 'maxWithdrawAmount', item.maxWithdrawAmount);
+  pushBinanceMetaPart_(parts, 'unrealizedProfit', item.unrealizedProfit);
+  pushBinanceMetaPart_(parts, 'initialMargin', item.initialMargin);
+  pushBinanceMetaPart_(parts, 'maintMargin', item.maintMargin);
+  pushBinanceMetaPart_(parts, 'positionInitialMargin', item.positionInitialMargin);
+  pushBinanceMetaPart_(parts, 'openOrderInitialMargin', item.openOrderInitialMargin);
+  pushBinanceMetaPart_(parts, 'crossWalletBalance', item.crossWalletBalance);
+  pushBinanceMetaPart_(parts, 'crossUnPnl', item.crossUnPnl);
+  pushBinanceMetaPart_(parts, 'marginAvailable', item.marginAvailable);
+  pushBinanceMetaPart_(parts, 'updateTime', item.updateTime);
+  return parts.join('; ');
+}
+
+function buildBinanceFuturesPositionMeta_(market, item) {
+  const parts = [];
+  pushBinanceMetaPart_(parts, 'market', market);
+  pushBinanceMetaPart_(parts, 'symbol', item.symbol);
+  pushBinanceMetaPart_(parts, 'positionSide', item.positionSide);
+  pushBinanceMetaPart_(parts, 'entryPrice', item.entryPrice);
+  pushBinanceMetaPart_(parts, 'breakEvenPrice', item.breakEvenPrice);
+  pushBinanceMetaPart_(parts, 'unrealizedProfit', item.unrealizedProfit);
+  pushBinanceMetaPart_(parts, 'isolated', item.isolated);
+  pushBinanceMetaPart_(parts, 'isolatedMargin', item.isolatedMargin);
+  pushBinanceMetaPart_(parts, 'isolatedWallet', item.isolatedWallet);
+  pushBinanceMetaPart_(parts, 'leverage', item.leverage);
+  pushBinanceMetaPart_(parts, 'notional', item.notional);
+  pushBinanceMetaPart_(parts, 'notionalValue', item.notionalValue);
+  pushBinanceMetaPart_(parts, 'initialMargin', item.initialMargin);
+  pushBinanceMetaPart_(parts, 'maintMargin', item.maintMargin);
+  pushBinanceMetaPart_(parts, 'positionInitialMargin', item.positionInitialMargin);
+  pushBinanceMetaPart_(parts, 'openOrderInitialMargin', item.openOrderInitialMargin);
+  pushBinanceMetaPart_(parts, 'maxQty', item.maxQty);
+  pushBinanceMetaPart_(parts, 'updateTime', item.updateTime);
+  return parts.join('; ');
+}
+
+function binanceBaseFromSymbol_(symbol) {
+  let text = String(symbol || '').trim().toUpperCase();
+  if (!text) return '';
+
+  text = text.split('_')[0];
+  const quoteSuffixes = ['USDT', 'USDC', 'FDUSD', 'BUSD', 'TUSD', 'USDP', 'BTC', 'ETH', 'BNB', 'USD'];
+  for (let i = 0; i < quoteSuffixes.length; i++) {
+    const suffix = quoteSuffixes[i];
+    if (text.length > suffix.length && text.endsWith(suffix)) {
+      return text.slice(0, -suffix.length);
+    }
+  }
+  return text;
 }
 
 // ... fetchBinanceApi_ (Keep existing logic) ...
