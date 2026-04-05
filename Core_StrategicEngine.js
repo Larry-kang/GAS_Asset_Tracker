@@ -217,13 +217,16 @@ const RULES = [
     phase: "All",
     condition: function (context) {
       const l4 = context.assetGroups ? context.assetGroups.find(g => g.id === "L4") : null;
-      return l4 && l4.value > 0;
+      const topTarget = (context.rebalanceTargets || [])[0];
+      return l4 && l4.value > 0 && (l4.currentWeight || 0) > (l4.target || 0) && (!topTarget || topTarget.id !== "L4");
     },
     getAction: function (context) {
       const l4 = context.assetGroups.find(g => g.id === "L4");
+      const currentPct = ((l4.currentWeight || 0) * 100).toFixed(1);
+      const allowedPct = ((l4.target || 0) * 100).toFixed(1);
       return {
         level: "[注意] 雜項資產清理建議",
-        message: "偵測到 Layer 4 雜項資產: " + l4.tickers.join(", ") + " (總值: " + Math.round(l4.value).toLocaleString() + " TWD)",
+        message: "偵測到 Layer 4 雜項資產: " + l4.tickers.join(", ") + " (總值: " + Math.round(l4.value).toLocaleString() + " TWD, 目前 " + currentPct + "% / 容許 " + allowedPct + "%)",
         action: "建議找市場高位機會清空雜項資產，回歸 L1 (BTC) 或 L2 (穩定基底)。"
       };
     }
@@ -629,13 +632,19 @@ function buildContext() {
   // 識別雜項資產 (Layer 4)
   const miscTickers = Object.keys(portfolioSummary).filter(t => !knownTickers.has(t) && !Config.NOISE_ASSETS.includes(t) && portfolioSummary[t] > 0);
   const miscValue = miscTickers.reduce((sum, t) => sum + portfolioSummary[t], 0);
+  let l4Target = Config.STRATEGIC.L4_ALLOWED_TARGET || 0;
+  if (indicatorsRaw["Alloc_L4_Target"] !== undefined && !isNaN(indicatorsRaw["Alloc_L4_Target"])) {
+    l4Target = indicatorsRaw["Alloc_L4_Target"];
+  }
+  const l4CurrentWeight = totalGrossAssets > 0 ? (miscValue / totalGrossAssets) : 0;
 
   assetGroups.push({
     id: "L4",
     name: "Layer 4: Miscellaneous (To Clear)",
-    target: 0,
+    target: l4Target,
     tickers: miscTickers,
     value: miscValue,
+    currentWeight: l4CurrentWeight,
     isMisc: true
   });
 
@@ -707,6 +716,7 @@ function fetchMarketIndicators(sheetName) {
     "Alloc_L1_Target",
     "Alloc_L2_Target",
     "Alloc_L3_Target",
+    "Alloc_L4_Target",
     // [NEW v24.13] TW Stock Indicators
     "00713_MM",
     "00662_MM",
@@ -812,19 +822,19 @@ function getRebalanceTargets(portfolio, assets, market) {
     const state = buildRebalanceGroupState_(group, assets);
 
     if (group.isMisc) {
-      if (state.currentValue > 0) {
+      if (state.currentValue > 0 && state.currentWeight > state.targetWeight) {
         targets.push({
           id: group.id,
           name: group.name,
           action: 'CLEAR',
           currentValue: state.currentValue,
-          targetValue: 0,
-          deltaValue: -Math.abs(state.currentValue),
+          targetValue: state.targetValue,
+          deltaValue: state.deltaValue,
           currentWeight: state.currentWeight,
-          targetWeight: 0,
-          weightGap: -Math.abs(state.currentWeight),
+          targetWeight: state.targetWeight,
+          weightGap: state.weightGap,
           priority: 1,
-          rationale: `${getRebalanceShortName_(group)} 持有非核心資產，建議優先清理`,
+          rationale: buildRebalanceRationale_(group, 'CLEAR', state),
           suggestedFundingSource: suggestRebalanceFundingSource_(group, 'CLEAR', market, overweightStates),
           executionHint: buildRebalanceExecutionHint_(group, 'CLEAR'),
           tickers: group.tickers || []
@@ -904,6 +914,12 @@ function buildRebalanceRationale_(group, action, state) {
   if (action === 'TRIM') {
     return `${shortName} 高於目標配置 ${gapPct}%`;
   }
+  if (action === 'CLEAR') {
+    if (state.targetWeight > 0) {
+      return `${shortName} 超出容許配置 ${gapPct}%`;
+    }
+    return `${shortName} 需要清理`;
+  }
   return `${shortName} 需要清理`;
 }
 
@@ -971,9 +987,10 @@ function buildRebalanceAlert_(target) {
   const deltaAbs = Math.round(Math.abs(target.deltaValue)).toLocaleString();
 
   if (target.action === 'CLEAR') {
+    const allowedPct = (target.targetWeight * 100).toFixed(1);
     return {
       level: "[配置] 再平衡建議 (清理雜項)",
-      message: `${shortName} 目前佔比 ${currentPct}%，已被歸類為待清理資產。`,
+      message: `${shortName} 目前佔比 ${currentPct}%${target.targetWeight > 0 ? `，已超出容許 ${allowedPct}%` : '，已被歸類為待清理資產'}。`,
       action: `${target.executionHint || '優先清理雜項資產'}，並將資金回補低配層或降低槓桿。`
     };
   }
@@ -1104,8 +1121,12 @@ function generatePortfolioSnapshot(context) {
     if (!group.isMisc) {
       line += " / 目標 " + targetPct.toFixed(0) + "%)\n";
     } else {
-      line += ")\n";
-      if (groupValue > 0) {
+      if (targetPct > 0) {
+        line += " / 容許 " + targetPct.toFixed(1) + "%)\n";
+      } else {
+        line += ")\n";
+      }
+      if (groupValue > 0 && pct > targetPct) {
         line += "  > ⚠️ 待清理: " + group.tickers.join(", ") + "\n";
       }
     }

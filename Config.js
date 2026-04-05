@@ -28,6 +28,7 @@ const Config = {
     // Strategic Thresholds
     STRATEGIC: {
         REBALANCE_ABS: 0.03,
+        L4_ALLOWED_TARGET: 0,
         PLEDGE_RATIO_SAFE: 2.5,
         PLEDGE_RATIO_ALERT: 2.1,
         PLEDGE_RATIO_CRITICAL: 1.8,
