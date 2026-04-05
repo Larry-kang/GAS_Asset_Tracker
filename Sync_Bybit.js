@@ -10,11 +10,11 @@ function getBybitBalance() {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const result = SyncManager.createResult("Bybit");
     const creds = Credentials.get('BYBIT');
-    const { apiKey, apiSecret, bridgeV2Url, bridgeV2Password } = creds;
-    const resolvedBridgeUrl = normalizeBybitBridgeUrl_(bridgeV2Url);
-    const useBridge = !!resolvedBridgeUrl;
-    const baseUrl = useBridge ? resolvedBridgeUrl : 'https://api.bybit.com';
-    const proxyPassword = useBridge ? bridgeV2Password : '';
+    const { apiKey, apiSecret } = creds;
+    const transport = resolveBybitTransport_(creds);
+    const useBridge = !!transport.baseUrl;
+    const baseUrl = useBridge ? transport.baseUrl : 'https://api.bybit.com';
+    const proxyPassword = useBridge ? transport.proxyPassword : '';
 
     if (!Credentials.isValid(creds)) {
       SyncManager.registerSourceCheck(result, {
@@ -28,10 +28,10 @@ function getBybitBalance() {
 
     if (useBridge && !proxyPassword) {
       SyncManager.registerSourceCheck(result, {
-        name: 'Bridge V2',
+        name: 'Transport',
         required: true,
         success: false,
-        message: 'Missing BRIDGE_V2_PASSWORD'
+        message: `Missing ${transport.passwordKey}`
       });
       return SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
     }
@@ -41,7 +41,7 @@ function getBybitBalance() {
       required: false,
       success: true,
       rows: 1,
-      message: useBridge ? 'Using local-bridge V2' : 'Using direct Bybit API'
+      message: transport.message
     });
 
     const accountInfoRes = fetchBybitAccountInfo_(baseUrl, apiKey, apiSecret, proxyPassword);
@@ -727,6 +727,35 @@ function normalizeBybitBridgeUrl_(value) {
   const normalized = text.replace(/\/+$/, '');
   if (/\/bybit$/i.test(normalized)) return normalized;
   return normalized + '/bybit';
+}
+
+function resolveBybitTransport_(creds) {
+  const sharedTunnelUrl = normalizeBybitBridgeUrl_(creds.tunnelUrl);
+  if (sharedTunnelUrl) {
+    return {
+      baseUrl: sharedTunnelUrl,
+      proxyPassword: String(creds.proxyPassword || '').trim(),
+      passwordKey: 'PROXY_PASSWORD',
+      message: 'Using shared bridge tunnel (TUNNEL_URL)'
+    };
+  }
+
+  const legacyBridgeUrl = normalizeBybitBridgeUrl_(creds.bridgeV2Url);
+  if (legacyBridgeUrl) {
+    return {
+      baseUrl: legacyBridgeUrl,
+      proxyPassword: String(creds.bridgeV2Password || '').trim(),
+      passwordKey: 'BRIDGE_V2_PASSWORD',
+      message: 'Using legacy Bridge V2 URL'
+    };
+  }
+
+  return {
+    baseUrl: '',
+    proxyPassword: '',
+    passwordKey: '',
+    message: 'Using direct Bybit API'
+  };
 }
 
 function safeParseBybitJson_(text) {
