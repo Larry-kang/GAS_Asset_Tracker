@@ -109,6 +109,11 @@ const RULES = [
       return context.market.surplus > 0 || context.rebalanceTargets.length > 0;
     },
     getAction: function (context) {
+      const topTarget = (context.rebalanceTargets || [])[0];
+      if (topTarget) {
+        return buildRebalanceAlert_(topTarget);
+      }
+
       // Priority 1: Check L1 Spot Ratio
       const l1Target = context.assetGroups ? context.assetGroups[0].target : 0.60;
       if (context.indicators.l1SpotRatio < l1Target) {
@@ -638,9 +643,7 @@ function buildContext() {
   const pledgeGroups = calculateAutoPledgeRatios(rawPortfolio, indicatorsRaw);
 
   // Phase 5: 再平衡目標
-  const portfolioForRebalance = {};
-  Object.keys(portfolioSummary).forEach(k => portfolioForRebalance[k] = { Market_Value_TWD: portfolioSummary[k] });
-  const targets = getRebalanceTargets(portfolioForRebalance, totalGrossAssets, market);
+  const targets = getRebalanceTargets(assetGroups, totalGrossAssets, market);
 
   const indicators = {
     isValid: pledgeGroups.length > 0,
@@ -793,9 +796,202 @@ function calculateGroupValue(summary, group) {
 }
 
 function getRebalanceTargets(portfolio, assets, market) {
-  let targets = [];
-  if (assets <= 0) return targets;
-  return targets;
+  const targets = [];
+  const groups = Array.isArray(portfolio) ? portfolio : [];
+  if (assets <= 0 || groups.length === 0) return targets;
+
+  const threshold = Config.STRATEGIC.REBALANCE_ABS || 0.03;
+  const coreStates = groups
+    .filter(group => !group.isMisc)
+    .map(group => buildRebalanceGroupState_(group, assets));
+  const overweightStates = coreStates
+    .filter(state => state.weightGap < -threshold)
+    .sort((a, b) => Math.abs(b.deltaValue) - Math.abs(a.deltaValue));
+
+  groups.forEach(group => {
+    const state = buildRebalanceGroupState_(group, assets);
+
+    if (group.isMisc) {
+      if (state.currentValue > 0) {
+        targets.push({
+          id: group.id,
+          name: group.name,
+          action: 'CLEAR',
+          currentValue: state.currentValue,
+          targetValue: 0,
+          deltaValue: -Math.abs(state.currentValue),
+          currentWeight: state.currentWeight,
+          targetWeight: 0,
+          weightGap: -Math.abs(state.currentWeight),
+          priority: 1,
+          rationale: `${getRebalanceShortName_(group)} 持有非核心資產，建議優先清理`,
+          suggestedFundingSource: suggestRebalanceFundingSource_(group, 'CLEAR', market, overweightStates),
+          executionHint: buildRebalanceExecutionHint_(group, 'CLEAR'),
+          tickers: group.tickers || []
+        });
+      }
+      return;
+    }
+
+    if (Math.abs(state.weightGap) < threshold) return;
+
+    const action = state.deltaValue > 0 ? 'ADD' : 'TRIM';
+    targets.push({
+      id: group.id,
+      name: group.name,
+      action: action,
+      currentValue: state.currentValue,
+      targetValue: state.targetValue,
+      deltaValue: state.deltaValue,
+      currentWeight: state.currentWeight,
+      targetWeight: state.targetWeight,
+      weightGap: state.weightGap,
+      priority: getRebalancePriority_(group, action, market),
+      rationale: buildRebalanceRationale_(group, action, state),
+      suggestedFundingSource: suggestRebalanceFundingSource_(group, action, market, overweightStates),
+      executionHint: buildRebalanceExecutionHint_(group, action)
+    });
+  });
+
+  return targets.sort(function (a, b) {
+    if (a.priority !== b.priority) return a.priority - b.priority;
+    return Math.abs(b.deltaValue) - Math.abs(a.deltaValue);
+  });
+}
+
+function buildRebalanceGroupState_(group, assets) {
+  const currentValue = parseFloat(group && group.value) || 0;
+  const targetWeight = parseFloat(group && (group.target !== undefined ? group.target : group.defaultTarget)) || 0;
+  const currentWeight = assets > 0 ? (currentValue / assets) : 0;
+  const targetValue = assets * targetWeight;
+  const deltaValue = targetValue - currentValue;
+  const weightGap = targetWeight - currentWeight;
+
+  return {
+    id: group.id,
+    name: group.name,
+    currentValue: currentValue,
+    targetWeight: targetWeight,
+    currentWeight: currentWeight,
+    targetValue: targetValue,
+    deltaValue: deltaValue,
+    weightGap: weightGap
+  };
+}
+
+function getRebalanceShortName_(group) {
+  return String((group && group.name) || (group && group.id) || '')
+    .replace(/^Layer\s+\d+:\s*/i, '')
+    .trim();
+}
+
+function getRebalancePriority_(group, action, market) {
+  if (group && group.isMisc) return 1;
+  if (action === 'ADD' && group && group.id === 'L3') {
+    return market && market.surplus < 0 ? 1 : 2;
+  }
+  if (action === 'ADD' && group && group.id === 'L1') return 2;
+  if (action === 'ADD') return 3;
+  return 4;
+}
+
+function buildRebalanceRationale_(group, action, state) {
+  const gapPct = Math.abs(state.weightGap * 100).toFixed(1);
+  const shortName = getRebalanceShortName_(group);
+  if (action === 'ADD') {
+    return `${shortName} 低於目標配置 ${gapPct}%`;
+  }
+  if (action === 'TRIM') {
+    return `${shortName} 高於目標配置 ${gapPct}%`;
+  }
+  return `${shortName} 需要清理`;
+}
+
+function suggestRebalanceFundingSource_(group, action, market, overweightStates) {
+  if (action === 'CLEAR') {
+    return '回補低配層或降低負債';
+  }
+
+  if (action === 'TRIM') {
+    return '轉入低配層或增加流動性';
+  }
+
+  if (market && market.surplus > 0) {
+    return '新增盈餘 / 現金流';
+  }
+
+  const source = (overweightStates || []).find(function (state) {
+    return state.id !== group.id;
+  });
+
+  if (source) {
+    return getRebalanceShortName_(source);
+  }
+
+  return 'L3 / 閒置現金';
+}
+
+function buildRebalanceExecutionHint_(group, action) {
+  const groupId = String((group && group.id) || '');
+
+  if (action === 'CLEAR') {
+    if (group && group.tickers && group.tickers.length > 0) {
+      return `優先處理: ${group.tickers.join(', ')}`;
+    }
+    return '優先清理雜項資產';
+  }
+
+  if (groupId === 'L1') {
+    return action === 'ADD'
+      ? '以新增資金或減碼防禦倉補強 BTC / IBIT 核心持倉'
+      : '可逐步把過重的 BTC / IBIT 轉入 L2 或 L3';
+  }
+
+  if (groupId === 'L2') {
+    return action === 'ADD'
+      ? '以 00713 / 00662 / QQQ 補強信用基底'
+      : '視評價與比重調節，將資金回流至 L1 或 L3';
+  }
+
+  if (groupId === 'L3') {
+    return action === 'ADD'
+      ? '提高法幣、穩定幣或 BOXX 流動性'
+      : '釋放部分流動性回補低配核心層';
+  }
+
+  return action === 'ADD'
+    ? '補強目前低配層'
+    : '調節目前高配層';
+}
+
+function buildRebalanceAlert_(target) {
+  const shortName = getRebalanceShortName_(target);
+  const currentPct = (target.currentWeight * 100).toFixed(1);
+  const targetPct = (target.targetWeight * 100).toFixed(1);
+  const deltaAbs = Math.round(Math.abs(target.deltaValue)).toLocaleString();
+
+  if (target.action === 'CLEAR') {
+    return {
+      level: "[配置] 再平衡建議 (清理雜項)",
+      message: `${shortName} 目前佔比 ${currentPct}%，已被歸類為待清理資產。`,
+      action: `${target.executionHint || '優先清理雜項資產'}，並將資金回補低配層或降低槓桿。`
+    };
+  }
+
+  const actionLabel = target.action === 'ADD' ? '補強' : '減碼';
+  let actionText = `建議${actionLabel} ${deltaAbs} TWD。`;
+  if (target.suggestedFundingSource) {
+    actionText += `\n資金流向/來源：${target.suggestedFundingSource}`;
+  }
+  if (target.executionHint) {
+    actionText += `\n執行提示：${target.executionHint}`;
+  }
+
+  return {
+    level: target.action === 'ADD' ? "[配置] 再平衡建議 (補強)" : "[配置] 再平衡建議 (調節)",
+    message: `${shortName} 目前 ${currentPct}% / 目標 ${targetPct}%`,
+    action: actionText
+  };
 }
 
 function getPortfolioData(sheetName) {
@@ -915,6 +1111,33 @@ function generatePortfolioSnapshot(context) {
     }
     s += line;
   });
+
+  s += "\n[IV] 再平衡建議 (REBALANCE)\n";
+  const rebalanceTargets = context.rebalanceTargets || [];
+  if (rebalanceTargets.length === 0) {
+    s += "- 目前配置落在可接受誤差內\n";
+  } else {
+    rebalanceTargets.slice(0, 5).forEach(target => {
+      const shortName = getRebalanceShortName_(target);
+      const currentPct = (target.currentWeight * 100).toFixed(1);
+      const targetPct = (target.targetWeight * 100).toFixed(1);
+      const deltaAbs = Math.round(Math.abs(target.deltaValue)).toLocaleString();
+
+      if (target.action === 'CLEAR') {
+        s += "- " + shortName + ": 目前 " + currentPct + "%\n";
+        s += "  > 建議清理 " + Math.round(target.currentValue).toLocaleString() + " TWD";
+        if (target.executionHint) s += " | " + target.executionHint;
+        s += "\n";
+        return;
+      }
+
+      const actionLabel = target.action === 'ADD' ? "補強" : "減碼";
+      s += "- " + shortName + ": 目前 " + currentPct + "% / 目標 " + targetPct + "%\n";
+      s += "  > 建議" + actionLabel + " " + deltaAbs + " TWD";
+      if (target.suggestedFundingSource) s += " | 資金方向: " + target.suggestedFundingSource;
+      s += "\n";
+    });
+  }
 
   s += "----------------------------------------\n";
   s += "最後更新: " + new Date().toLocaleString('zh-TW', { hour12: false });
