@@ -24,9 +24,6 @@ function doPost(e) {
       case 'update_tunnel_url':
         return handleTunnelUpdate(data);
 
-      case 'update_bridge_v2_url':
-        return handleBridgeV2TunnelUpdate(data);
-
       case 'trigger_balance_update':
         return handleForceUpdate(data);
 
@@ -56,17 +53,11 @@ function doPost(e) {
 // --- Controllers / Handlers ---
 
 function isAuthorizedWebhookRequest_(data) {
-  const action = String((data && data.action) || '').trim();
   const providedPassword = String((data && data.password) || '').trim();
 
   const allowedPasswords = [];
   const proxyPassword = Settings.get('PROXY_PASSWORD');
   if (proxyPassword) allowedPasswords.push(proxyPassword);
-
-  if (action === 'update_bridge_v2_url') {
-    const bridgeV2Password = Settings.get('BRIDGE_V2_PASSWORD');
-    if (bridgeV2Password) allowedPasswords.push(bridgeV2Password);
-  }
 
   // 若尚未設定任何密碼，允許第一次連線
   if (allowedPasswords.length === 0) return true;
@@ -88,25 +79,6 @@ function handleTunnelUpdate(data) {
   return ContentService.createTextOutput(JSON.stringify({
     status: "success",
     msg: "URL Updated",
-    data: {
-      url: data.url,
-      timestamp: new Date().toISOString()
-    }
-  }));
-}
-
-function handleBridgeV2TunnelUpdate(data) {
-  const oldUrl = Settings.get('BRIDGE_V2_URL');
-  Settings.set('BRIDGE_V2_URL', data.url);
-
-  if (data.password) {
-    Settings.set('BRIDGE_V2_PASSWORD', data.password);
-  }
-
-  console.log(`[Webhook] Bridge V2 URL Updated: ${oldUrl} -> ${data.url}`);
-  return ContentService.createTextOutput(JSON.stringify({
-    status: "success",
-    msg: "Bridge V2 URL Updated",
     data: {
       url: data.url,
       timestamp: new Date().toISOString()

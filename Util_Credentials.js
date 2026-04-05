@@ -35,8 +35,6 @@ const Credentials = {
         if (exchange === 'BYBIT') {
             creds.tunnelUrl = Settings.get('TUNNEL_URL');
             creds.proxyPassword = Settings.get('PROXY_PASSWORD');
-            creds.bridgeV2Url = Settings.get('BRIDGE_V2_URL');
-            creds.bridgeV2Password = Settings.get('BRIDGE_V2_PASSWORD');
         }
 
         return creds;

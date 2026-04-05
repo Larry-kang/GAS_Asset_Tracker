@@ -740,16 +740,6 @@ function resolveBybitTransport_(creds) {
     };
   }
 
-  const legacyBridgeUrl = normalizeBybitBridgeUrl_(creds.bridgeV2Url);
-  if (legacyBridgeUrl) {
-    return {
-      baseUrl: legacyBridgeUrl,
-      proxyPassword: String(creds.bridgeV2Password || '').trim(),
-      passwordKey: 'BRIDGE_V2_PASSWORD',
-      message: 'Using legacy Bridge V2 URL'
-    };
-  }
-
   return {
     baseUrl: '',
     proxyPassword: '',
