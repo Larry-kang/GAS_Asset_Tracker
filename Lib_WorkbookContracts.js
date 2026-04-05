@@ -31,11 +31,11 @@ const WorkbookContracts = {
             key: "BALANCE_SHEET_VIEW",
             sheetName: "Balance Sheet",
             type: "balanceSheetView",
-            scanRows: 10,
+            scanRows: 30,
             columns: {
-                ticker: { aliases: ["股票代號/銀行", "Ticker", "Asset", "Symbol"], match: "first" },
-                value: { aliases: ["現值", "Value", "Market Value", "Market_Value_TWD", "市值"], match: "first" },
-                purpose: { aliases: ["用途", "Purpose", "Category", "類型"], match: "last" }
+                ticker: { aliases: ["股票代號/銀行", "股票代號 / 銀行", "股票代號", "Ticker", "Asset", "Symbol"], match: "first" },
+                value: { aliases: ["現值", "現值(TWD)", "現值（TWD）", "現值 TWD", "市值", "市值(TWD)", "市值（TWD）", "Value", "Market Value", "Market_Value_TWD"], match: "first" },
+                purpose: { aliases: ["用途", "Purpose", "Category", "類型", "資產類型", "分類", "策略分類", "配置類型"], match: "last" }
             }
         },
         KEY_MARKET_INDICATORS_VIEW: {
@@ -343,15 +343,30 @@ const WorkbookContracts = {
     },
 
     findMatchingColumnIndex_: function (row, aliases, matchMode) {
-        const normalizedAliases = (aliases || []).map(this.normalizeValue_);
-        const indexes = [];
+        const normalizedAliases = (aliases || []).map(alias => this.normalizeHeaderToken_(alias)).filter(Boolean);
+        const exactIndexes = [];
+        const fuzzyIndexes = [];
 
         row.forEach((value, index) => {
-            if (normalizedAliases.indexOf(value) >= 0) {
-                indexes.push(index);
+            const normalizedValue = this.normalizeHeaderToken_(value);
+            if (!normalizedValue) return;
+
+            if (normalizedAliases.indexOf(normalizedValue) >= 0) {
+                exactIndexes.push(index);
+                return;
+            }
+
+            const hasFuzzyMatch = normalizedAliases.some(alias => {
+                if (!alias || alias.length < 2) return false;
+                return normalizedValue.indexOf(alias) >= 0 || alias.indexOf(normalizedValue) >= 0;
+            });
+
+            if (hasFuzzyMatch) {
+                fuzzyIndexes.push(index);
             }
         });
 
+        const indexes = exactIndexes.length > 0 ? exactIndexes : fuzzyIndexes;
         if (indexes.length === 0) return -1;
         return matchMode === "last" ? indexes[indexes.length - 1] : indexes[0];
     },
@@ -375,6 +390,12 @@ const WorkbookContracts = {
 
     normalizeValue_: function (value) {
         return String(value == null ? "" : value).trim();
+    },
+
+    normalizeHeaderToken_: function (value) {
+        return this.normalizeValue_(value)
+            .toLowerCase()
+            .replace(/[\s\u3000_\-:/()（）\[\]【】]/g, "");
     },
 
     isNumericValue_: function (value) {
