@@ -26,6 +26,32 @@ const WorkbookContracts = {
             key: "SETTINGS_MATRIX",
             sheetName: "參數設定",
             type: "settingsMatrix"
+        },
+        BALANCE_SHEET_VIEW: {
+            key: "BALANCE_SHEET_VIEW",
+            sheetName: "Balance Sheet",
+            type: "balanceSheetView",
+            scanRows: 10,
+            columns: {
+                ticker: { aliases: ["股票代號/銀行", "Ticker", "Asset", "Symbol"], match: "first" },
+                value: { aliases: ["現值", "Value", "Market Value", "Market_Value_TWD", "市值"], match: "first" },
+                purpose: { aliases: ["用途", "Purpose", "Category", "類型"], match: "last" }
+            }
+        },
+        KEY_MARKET_INDICATORS_VIEW: {
+            key: "KEY_MARKET_INDICATORS_VIEW",
+            sheetName: "Key Market Indicators",
+            type: "keyValueSheet",
+            scanRows: 5,
+            keyColumn: { aliases: ["Indicator_Name", "指標名稱", "Indicator", "Key"], match: "first" },
+            valueColumn: { aliases: ["Value", "值", "數值"], match: "first" },
+            requiredKeys: [
+                "Current_BTC_Price",
+                "SAP_Base_ATH",
+                "Total_Martingale_Spent",
+                "MAX_MARTINGALE_BUDGET",
+                "MONTHLY_DEBT_COST"
+            ]
         }
     },
 
@@ -48,7 +74,15 @@ const WorkbookContracts = {
     },
 
     validateCoreSheets: function (ss) {
-        return Object.keys(this.CONTRACTS).map(key => {
+        return this.validateSheetsByKeys_(ss, ["UNIFIED_ASSETS", "SYSTEM_LOGS", "PRICE_CACHE", "SETTINGS_MATRIX"]);
+    },
+
+    validateStrategyInputSheets: function (ss) {
+        return this.validateSheetsByKeys_(ss, ["BALANCE_SHEET_VIEW", "KEY_MARKET_INDICATORS_VIEW"]);
+    },
+
+    validateSheetsByKeys_: function (ss, keys) {
+        return keys.map(key => {
             const contract = this.getContract(key);
             const sheet = ss.getSheetByName(contract.sheetName);
             if (!sheet) {
@@ -87,6 +121,14 @@ const WorkbookContracts = {
 
         if (contract.type === "settingsMatrix") {
             return this.validateSettingsMatrix_(sheet);
+        }
+
+        if (contract.type === "balanceSheetView") {
+            return this.validateBalanceSheetView_(sheet, contract);
+        }
+
+        if (contract.type === "keyValueSheet") {
+            return this.validateKeyValueSheet_(sheet, contract);
         }
 
         throw new Error(`Unsupported contract type: ${contract.type}`);
@@ -186,6 +228,134 @@ const WorkbookContracts = {
         };
     },
 
+    validateBalanceSheetView_: function (sheet, contract) {
+        const scanRows = Math.max(contract.scanRows || 10, 3);
+        const lastRow = Math.max(sheet.getLastRow(), scanRows);
+        const lastCol = Math.max(sheet.getLastColumn(), 4);
+        const values = sheet.getRange(1, 1, Math.min(lastRow, scanRows), lastCol).getValues();
+        const headerMatch = this.findHeaderRowByColumnRules_(values, contract.columns);
+
+        if (!headerMatch) {
+            throw new Error(`Workbook contract failed for "${sheet.getName()}": could not locate Balance Sheet header row with ticker/value/purpose columns.`);
+        }
+
+        const dataStartRow = headerMatch.headerRowIndex + 1;
+        const dataRowCount = Math.max(sheet.getLastRow() - headerMatch.headerRowIndex, 0);
+        if (dataRowCount <= 0) {
+            throw new Error(`Workbook contract failed for "${sheet.getName()}": no portfolio rows found below header row ${headerMatch.headerRowIndex}.`);
+        }
+
+        return {
+            type: "balanceSheetView",
+            headerRowIndex: headerMatch.headerRowIndex,
+            tickerColumn: headerMatch.columns.ticker,
+            valueColumn: headerMatch.columns.value,
+            purposeColumn: headerMatch.columns.purpose,
+            dataStartRow: dataStartRow,
+            dataRowCount: dataRowCount
+        };
+    },
+
+    validateKeyValueSheet_: function (sheet, contract) {
+        const scanRows = Math.max(contract.scanRows || 5, 1);
+        const lastRow = Math.max(sheet.getLastRow(), 2);
+        const lastCol = Math.max(sheet.getLastColumn(), 2);
+        const values = sheet.getRange(1, 1, Math.min(lastRow, scanRows), lastCol).getValues();
+        const headerMatch = this.findHeaderRowByColumnRules_(values, {
+            key: contract.keyColumn,
+            value: contract.valueColumn
+        });
+
+        if (!headerMatch) {
+            throw new Error(`Workbook contract failed for "${sheet.getName()}": could not locate key/value header row.`);
+        }
+
+        const fullValues = sheet.getRange(headerMatch.headerRowIndex + 1, 1, Math.max(lastRow - headerMatch.headerRowIndex, 1), lastCol).getValues();
+        const rowLookup = {};
+
+        fullValues.forEach((row, index) => {
+            const key = this.normalizeValue_(row[headerMatch.columns.key - 1]);
+            if (!key || rowLookup[key]) return;
+            rowLookup[key] = {
+                rowIndex: headerMatch.headerRowIndex + 1 + index,
+                rawValue: row[headerMatch.columns.value - 1]
+            };
+        });
+
+        const missingKeys = [];
+        const nonNumericKeys = [];
+        (contract.requiredKeys || []).forEach(requiredKey => {
+            const entry = rowLookup[requiredKey];
+            if (!entry) {
+                missingKeys.push(requiredKey);
+                return;
+            }
+
+            if (!this.isNumericValue_(entry.rawValue)) {
+                nonNumericKeys.push(requiredKey);
+            }
+        });
+
+        if (missingKeys.length > 0) {
+            throw new Error(`Workbook contract failed for "${sheet.getName()}": missing required key(s): ${missingKeys.join(", ")}`);
+        }
+
+        if (nonNumericKeys.length > 0) {
+            throw new Error(`Workbook contract failed for "${sheet.getName()}": required key(s) not numeric: ${nonNumericKeys.join(", ")}`);
+        }
+
+        return {
+            type: "keyValueSheet",
+            headerRowIndex: headerMatch.headerRowIndex,
+            keyColumn: headerMatch.columns.key,
+            valueColumn: headerMatch.columns.value,
+            requiredKeys: contract.requiredKeys || [],
+            rowCount: fullValues.length
+        };
+    },
+
+    findHeaderRowByColumnRules_: function (rows, columnRules) {
+        for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+            const row = rows[rowIndex].map(this.normalizeValue_);
+            const match = {};
+            let allMatched = true;
+
+            Object.keys(columnRules).forEach(key => {
+                if (!allMatched) return;
+                const rule = columnRules[key];
+                const columnIndex = this.findMatchingColumnIndex_(row, rule.aliases || [], rule.match || "first");
+                if (columnIndex < 0) {
+                    allMatched = false;
+                    return;
+                }
+                match[key] = columnIndex + 1;
+            });
+
+            if (allMatched) {
+                return {
+                    headerRowIndex: rowIndex + 1,
+                    columns: match
+                };
+            }
+        }
+
+        return null;
+    },
+
+    findMatchingColumnIndex_: function (row, aliases, matchMode) {
+        const normalizedAliases = (aliases || []).map(this.normalizeValue_);
+        const indexes = [];
+
+        row.forEach((value, index) => {
+            if (normalizedAliases.indexOf(value) >= 0) {
+                indexes.push(index);
+            }
+        });
+
+        if (indexes.length === 0) return -1;
+        return matchMode === "last" ? indexes[indexes.length - 1] : indexes[0];
+    },
+
     initializeHeaderSheet_: function (sheet, headers, options) {
         const opts = options || {};
         sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
@@ -207,6 +377,22 @@ const WorkbookContracts = {
         return String(value == null ? "" : value).trim();
     },
 
+    isNumericValue_: function (value) {
+        if (typeof value === "number") {
+            return isFinite(value);
+        }
+
+        const normalized = this.normalizeValue_(value)
+            .replace(/NT\$/gi, "")
+            .replace(/\$/g, "")
+            .replace(/,/g, "")
+            .replace(/%/g, "");
+
+        if (!normalized) return false;
+        const num = parseFloat(normalized);
+        return isFinite(num);
+    },
+
     columnToLetter_: function (column) {
         let result = "";
         let current = column;
@@ -224,6 +410,15 @@ function validateWorkbookContracts() {
     const failed = results.filter(result => !result.ok);
     if (failed.length > 0) {
         throw new Error(`Workbook contract validation failed: ${failed.map(item => item.message).join(" | ")}`);
+    }
+    return results;
+}
+
+function validateStrategyInputContracts() {
+    const results = WorkbookContracts.validateStrategyInputSheets(SpreadsheetApp.getActiveSpreadsheet());
+    const failed = results.filter(result => !result.ok);
+    if (failed.length > 0) {
+        throw new Error(`Strategy input contract validation failed: ${failed.map(item => item.message).join(" | ")}`);
     }
     return results;
 }

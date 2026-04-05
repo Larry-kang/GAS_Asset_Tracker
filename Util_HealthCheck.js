@@ -42,6 +42,15 @@ function runSystemHealthCheck() {
             report += `[通過] ${result.sheetName} 結構正常\n`;
         }
     });
+    const strategyInputResults = WorkbookContracts.validateStrategyInputSheets(ss);
+    strategyInputResults.forEach(result => {
+        if (!result.ok) {
+            report += `[失敗] ${result.message}\n`;
+            issues++;
+        } else {
+            report += `[通過] ${result.sheetName} 策略輸入結構正常\n`;
+        }
+    });
 
     // 3. API Connectivity (Latent Check)
     report += "\n[IV] 網路連線診斷\n";

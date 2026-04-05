@@ -700,46 +700,11 @@ function buildContext() {
 }
 
 function fetchMarketIndicators(sheetName) {
-  const data = DataCache.getValues(sheetName);
-  if (!data) throw new Error("Could not find indicator sheet: " + sheetName);
-  const result = {};
-
-  const keysOfInterest = [
-    "SAP_Base_ATH",
-    "Total_Martingale_Spent",
-    // "L1_Spot_Ratio", // Deprecated: Calculated in code v24.5
-    "Current_BTC_Price",
-    // "Total_BTC_Ratio", // Deprecated: Calculated in code v24.5
-    "MAX_MARTINGALE_BUDGET",
-    "MONTHLY_DEBT_COST",
-    "BTC_MM",  // [NEW v24.10] Mayer Multiple for dynamic allocation
-    "Alloc_L1_Target",
-    "Alloc_L2_Target",
-    "Alloc_L3_Target",
-    "Alloc_L4_Target",
-    // [NEW v24.13] TW Stock Indicators
-    "00713_MM",
-    "00662_MM",
-    "00713_Price", // [NEW v24.14] Rebalancing Math
-    "00662_Price", // [NEW v24.14] Rebalancing Math
-    "00713_200DMA_Price",
-    "00662_200DMA_Price"
-  ];
-
-  for (let i = 0; i < data.length; i++) {
-    const key = String(data[i][0]).trim();
-    const val = parseFloat(data[i][1]);
-
-    // [V24.11 Refined] Dynamic Key Matching
-    if (keysOfInterest.includes(key) ||
-      key.indexOf("SAP_") > -1 ||
-      key.indexOf("_Maint_Alert") > -1 ||
-      key.indexOf("_Maint_Critical") > -1) {
-      result[key] = val;
-    }
+    return KeyMarketIndicatorsViewRepo.readIndicators(
+      SpreadsheetApp.getActiveSpreadsheet(),
+      { sheetName: sheetName }
+    );
   }
-  return result;
-}
 
 function calculateAutoPledgeRatios(rawPortfolio, indicatorsRaw) {
   const labelMap = {};
@@ -1012,21 +977,11 @@ function buildRebalanceAlert_(target) {
 }
 
 function getPortfolioData(sheetName) {
-  const data = DataCache.getValues(sheetName);
-  if (!data) throw new Error("Could not find balance sheet: " + sheetName);
-  const portfolio = [];
-  for (let i = 1; i < data.length; i++) {
-    const ticker = data[i][0];
-    if (ticker) {
-      portfolio.push({
-        ticker: ticker,
-        value: parseFloat(data[i][2]) || 0,
-        purpose: data[i][3] || ""
-      });
-    }
+    return BalanceSheetViewRepo.readPortfolio(
+      SpreadsheetApp.getActiveSpreadsheet(),
+      { sheetName: sheetName }
+    );
   }
-  return portfolio;
-}
 
 function generatePortfolioSnapshot(context) {
   const { market, pledgeGroups, netEntityValue, indicators, totalGrossAssets, portfolioSummary } = context;
