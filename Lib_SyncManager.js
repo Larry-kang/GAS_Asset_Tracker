@@ -56,6 +56,7 @@ const SyncManager = {
             optionalChecks: [],
             errors: [],
             warnings: [],
+            notes: [],
             normalization: {
                 droppedDust: 0,
                 droppedInvalid: 0
@@ -360,6 +361,9 @@ const SyncManager = {
         }
         if (result.warnings && result.warnings.length > 0) {
             return `Warnings: ${result.warnings.join(" | ").slice(0, 450)}`;
+        }
+        if (result.notes && result.notes.length > 0) {
+            return `Notes: ${result.notes.join(" | ").slice(0, 450)}`;
         }
         return `OK (${result.rowCount || 0} rows)`;
     },

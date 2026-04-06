@@ -261,6 +261,13 @@ function getBybitBalance() {
       result.warnings.push(`Account mode may not be UTA. unifiedMarginStatus=${accountInfo.unifiedMarginStatus || 'unknown'}`);
     }
 
+    if (result.assets.length === 0 && result.errors.length === 0) {
+      const emptyNote = buildBybitEmptyAccountNote_(walletRes, fundingRes, linearPositionsRes, inversePositionsRes, flexibleEarnRes, onChainEarnRes, accountInfo);
+      if (emptyNote) {
+        result.notes.push(emptyNote);
+      }
+    }
+
     return SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
   });
 }
@@ -649,6 +656,59 @@ function buildBybitEarnMeta_(item, earnProductMap) {
   pushBybitMetaIfPresent_(parts, 'rewardDistributionType', product ? product.rewardDistributionType : '');
   pushBybitMetaIfPresent_(parts, 'settlementTime', formatBybitTimestamp_(item.settlementTime));
   return parts.join('; ');
+}
+
+function buildBybitEmptyAccountNote_(walletRes, fundingRes, linearPositionsRes, inversePositionsRes, flexibleEarnRes, onChainEarnRes, accountInfo) {
+  const parts = [
+    'Transport/auth succeeded',
+    'no eligible Bybit wallet/funding/position/earn rows returned'
+  ];
+
+  const walletSummary = walletRes && walletRes.success ? (walletRes.data && walletRes.data.summary) : null;
+  const walletSummaryText = buildBybitWalletSummaryText_(walletSummary);
+  if (walletSummaryText) {
+    parts.push(walletSummaryText);
+  }
+
+  const accountMode = describeBybitAccountMode_(accountInfo);
+  if (accountMode) {
+    parts.push(`accountMode=${accountMode}`);
+  }
+
+  if (isBybitAllSourcesEmpty_(walletRes, fundingRes, linearPositionsRes, inversePositionsRes, flexibleEarnRes, onChainEarnRes)) {
+    parts.push('all tracked sources are empty');
+  }
+
+  return parts.join('; ');
+}
+
+function isBybitAllSourcesEmpty_(walletRes, fundingRes, linearPositionsRes, inversePositionsRes, flexibleEarnRes, onChainEarnRes) {
+  const walletCoins = walletRes && walletRes.success && walletRes.data && Array.isArray(walletRes.data.coins) ? walletRes.data.coins.length : 0;
+  const fundingCoins = fundingRes && fundingRes.success && Array.isArray(fundingRes.data) ? fundingRes.data.length : 0;
+  const linearRows = linearPositionsRes && linearPositionsRes.success && Array.isArray(linearPositionsRes.data) ? linearPositionsRes.data.length : 0;
+  const inverseRows = inversePositionsRes && inversePositionsRes.success && Array.isArray(inversePositionsRes.data) ? inversePositionsRes.data.length : 0;
+  const flexibleRows = flexibleEarnRes && flexibleEarnRes.success && Array.isArray(flexibleEarnRes.data) ? flexibleEarnRes.data.length : 0;
+  const onChainRows = onChainEarnRes && onChainEarnRes.success && Array.isArray(onChainEarnRes.data) ? onChainEarnRes.data.length : 0;
+  return walletCoins + fundingCoins + linearRows + inverseRows + flexibleRows + onChainRows === 0;
+}
+
+function buildBybitWalletSummaryText_(summary) {
+  if (!summary) return '';
+
+  const parts = [];
+  pushBybitNumericMetaIfNonZero_(parts, 'totalEquity', summary.totalEquity);
+  pushBybitNumericMetaIfNonZero_(parts, 'totalWalletBalance', summary.totalWalletBalance);
+  pushBybitNumericMetaIfNonZero_(parts, 'totalAvailableBalance', summary.totalAvailableBalance);
+  pushBybitNumericMetaIfNonZero_(parts, 'accountIMRate', summary.accountIMRate);
+  pushBybitNumericMetaIfNonZero_(parts, 'accountMMRate', summary.accountMMRate);
+  return parts.join('; ');
+}
+
+function describeBybitAccountMode_(accountInfo) {
+  const status = Number(accountInfo && accountInfo.unifiedMarginStatus);
+  if (!isFinite(status)) return '';
+  if (status > 1) return `UTA(${status})`;
+  return `Classic(${status})`;
 }
 
 function buildBybitEarnProductKey_(category, productIdOrCoin) {
