@@ -217,8 +217,10 @@ const RULES = [
     phase: "All",
     condition: function (context) {
       const l4 = context.assetGroups ? context.assetGroups.find(g => g.id === "L4") : null;
-      const topTarget = (context.rebalanceTargets || [])[0];
-      return l4 && l4.value > 0 && (l4.currentWeight || 0) > (l4.target || 0) && (!topTarget || topTarget.id !== "L4");
+      const hasL4RebalanceTarget = (context.rebalanceTargets || []).some(function (target) {
+        return target && target.id === "L4";
+      });
+      return l4 && l4.value > 0 && (l4.currentWeight || 0) > (l4.target || 0) && !hasL4RebalanceTarget;
     },
     getAction: function (context) {
       const l4 = context.assetGroups.find(g => g.id === "L4");
@@ -782,6 +784,9 @@ function getRebalanceTargets(portfolio, assets, market) {
   const overweightStates = coreStates
     .filter(state => state.weightGap < -threshold)
     .sort((a, b) => Math.abs(b.deltaValue) - Math.abs(a.deltaValue));
+  const underweightStates = coreStates
+    .filter(state => state.weightGap > threshold)
+    .sort((a, b) => Math.abs(b.deltaValue) - Math.abs(a.deltaValue));
 
   groups.forEach(group => {
     const state = buildRebalanceGroupState_(group, assets);
@@ -800,8 +805,8 @@ function getRebalanceTargets(portfolio, assets, market) {
           weightGap: state.weightGap,
           priority: 1,
           rationale: buildRebalanceRationale_(group, 'CLEAR', state),
-          suggestedFundingSource: suggestRebalanceFundingSource_(group, 'CLEAR', market, overweightStates),
-          executionHint: buildRebalanceExecutionHint_(group, 'CLEAR'),
+          suggestedFundingSource: suggestRebalanceFundingSource_(group, 'CLEAR', market, overweightStates, underweightStates),
+          executionHint: buildRebalanceExecutionHint_(group, 'CLEAR', market, overweightStates, underweightStates),
           tickers: group.tickers || []
         });
       }
@@ -823,8 +828,8 @@ function getRebalanceTargets(portfolio, assets, market) {
       weightGap: state.weightGap,
       priority: getRebalancePriority_(group, action, market),
       rationale: buildRebalanceRationale_(group, action, state),
-      suggestedFundingSource: suggestRebalanceFundingSource_(group, action, market, overweightStates),
-      executionHint: buildRebalanceExecutionHint_(group, action)
+      suggestedFundingSource: suggestRebalanceFundingSource_(group, action, market, overweightStates, underweightStates),
+      executionHint: buildRebalanceExecutionHint_(group, action, market, overweightStates, underweightStates)
     });
   });
 
@@ -862,12 +867,16 @@ function getRebalanceShortName_(group) {
 
 function getRebalancePriority_(group, action, market) {
   if (group && group.isMisc) return 1;
+  if (action === 'TRIM' && group && group.id === 'L3') return 2;
+  if (action === 'TRIM' && group && group.id === 'L2') return 3;
+  if (action === 'TRIM') return 4;
+  if (action === 'ADD' && group && group.id === 'L1') return 5;
+  if (action === 'ADD' && group && group.id === 'L2') return 6;
   if (action === 'ADD' && group && group.id === 'L3') {
-    return market && market.surplus < 0 ? 1 : 2;
+    return market && market.surplus < 0 ? 5 : 7;
   }
-  if (action === 'ADD' && group && group.id === 'L1') return 2;
-  if (action === 'ADD') return 3;
-  return 4;
+  if (action === 'ADD') return 8;
+  return 9;
 }
 
 function buildRebalanceRationale_(group, action, state) {
@@ -888,61 +897,135 @@ function buildRebalanceRationale_(group, action, state) {
   return `${shortName} 需要清理`;
 }
 
-function suggestRebalanceFundingSource_(group, action, market, overweightStates) {
+function suggestRebalanceFundingSource_(group, action, market, overweightStates, underweightStates) {
+  const preferredDestination = getPreferredRebalanceDestination_(group, underweightStates);
+  const preferredSource = getPreferredRebalanceSource_(group, overweightStates);
+
   if (action === 'CLEAR') {
-    return '回補低配層或降低負債';
+    if (preferredDestination) {
+      return `優先回補 ${preferredDestination}`;
+    }
+    return '優先降低負債或回補低配層';
   }
 
   if (action === 'TRIM') {
+    if (preferredDestination) {
+      return `優先轉入 ${preferredDestination}`;
+    }
     return '轉入低配層或增加流動性';
+  }
+
+  if (preferredSource) {
+    return `先釋放 ${preferredSource}`;
   }
 
   if (market && market.surplus > 0) {
     return '新增盈餘 / 現金流';
   }
 
-  const source = (overweightStates || []).find(function (state) {
-    return state.id !== group.id;
-  });
-
-  if (source) {
-    return getRebalanceShortName_(source);
-  }
-
   return 'L3 / 閒置現金';
 }
 
-function buildRebalanceExecutionHint_(group, action) {
+function buildRebalanceExecutionHint_(group, action, market, overweightStates, underweightStates) {
   const groupId = String((group && group.id) || '');
+  const preferredDestination = getPreferredRebalanceDestination_(group, underweightStates);
+  const preferredSource = getPreferredRebalanceSource_(group, overweightStates);
 
   if (action === 'CLEAR') {
     if (group && group.tickers && group.tickers.length > 0) {
-      return `優先處理: ${group.tickers.join(', ')}`;
+      const destinationText = preferredDestination ? `；回收資金優先轉入 ${preferredDestination}` : '；回收資金優先降低負債或補低配層';
+      return `優先處理: ${group.tickers.join(', ')}${destinationText}`;
     }
     return '優先清理雜項資產';
   }
 
   if (groupId === 'L1') {
     return action === 'ADD'
-      ? '以新增資金或減碼防禦倉補強 BTC / IBIT 核心持倉'
+      ? (preferredSource
+        ? `建議先釋放 ${preferredSource}，再補強 BTC / IBIT 核心持倉`
+        : '以新增資金或減碼防禦倉補強 BTC / IBIT 核心持倉')
       : '可逐步把過重的 BTC / IBIT 轉入 L2 或 L3';
   }
 
   if (groupId === 'L2') {
     return action === 'ADD'
-      ? '以 00713 / 00662 / QQQ 補強信用基底'
-      : '視評價與比重調節，將資金回流至 L1 或 L3';
+      ? (preferredSource
+        ? `先釋放 ${preferredSource}，再以 00713 / 00662 / QQQ 補強信用基底`
+        : '以 00713 / 00662 / QQQ 補強信用基底')
+      : (preferredDestination
+        ? `視評價與比重調節，將資金優先回流至 ${preferredDestination}`
+        : '視評價與比重調節，將資金回流至 L1 或 L3');
   }
 
   if (groupId === 'L3') {
     return action === 'ADD'
       ? '提高法幣、穩定幣或 BOXX 流動性'
-      : '釋放部分流動性回補低配核心層';
+      : (preferredDestination
+        ? `釋放部分流動性，優先回補 ${preferredDestination}`
+        : '釋放部分流動性回補低配核心層');
   }
 
   return action === 'ADD'
     ? '補強目前低配層'
     : '調節目前高配層';
+}
+
+function getPreferredRebalanceSource_(group, overweightStates) {
+  const groupId = String((group && group.id) || '');
+  const orderedIds = ['L4', 'L3', 'L2'];
+  const states = Array.isArray(overweightStates) ? overweightStates : [];
+
+  for (let i = 0; i < orderedIds.length; i++) {
+    const id = orderedIds[i];
+    if (id === groupId) continue;
+    const match = states.find(function (state) {
+      return state.id === id;
+    });
+    if (match) {
+      return getRebalanceShortName_(match);
+    }
+  }
+
+  return null;
+}
+
+function getPreferredRebalanceDestination_(group, underweightStates) {
+  const groupId = String((group && group.id) || '');
+  const orderedIds = ['L1', 'L2', 'L3'];
+  const states = Array.isArray(underweightStates) ? underweightStates : [];
+
+  for (let i = 0; i < orderedIds.length; i++) {
+    const id = orderedIds[i];
+    if (id === groupId) continue;
+    const match = states.find(function (state) {
+      return state.id === id;
+    });
+    if (match) {
+      return getRebalanceShortName_(match);
+    }
+  }
+
+  return null;
+}
+
+function buildRebalanceSequenceSummary_(targets) {
+  const sequence = [];
+  const list = Array.isArray(targets) ? targets : [];
+
+  const clearTarget = list.find(function (target) { return target.action === 'CLEAR'; });
+  if (clearTarget) sequence.push(`先清理 ${getRebalanceShortName_(clearTarget)}`);
+
+  list
+    .filter(function (target) { return target.action === 'TRIM'; })
+    .slice(0, 2)
+    .forEach(function (target) {
+      sequence.push(`再調節 ${getRebalanceShortName_(target)}`);
+    });
+
+  const addTarget = list.find(function (target) { return target.action === 'ADD'; });
+  if (addTarget) sequence.push(`最後補強 ${getRebalanceShortName_(addTarget)}`);
+
+  return sequence;
 }
 
 function buildRebalanceAlert_(target) {
@@ -953,10 +1036,14 @@ function buildRebalanceAlert_(target) {
 
   if (target.action === 'CLEAR') {
     const allowedPct = (target.targetWeight * 100).toFixed(1);
+    let actionText = `${target.executionHint || '優先清理雜項資產'}，並將資金回補低配層或降低槓桿。`;
+    if (target.suggestedFundingSource) {
+      actionText += `\n資金優先方向：${target.suggestedFundingSource}`;
+    }
     return {
       level: "[配置] 再平衡建議 (清理雜項)",
       message: `${shortName} 目前佔比 ${currentPct}%${target.targetWeight > 0 ? `，已超出容許 ${allowedPct}%` : '，已被歸類為待清理資產'}。`,
-      action: `${target.executionHint || '優先清理雜項資產'}，並將資金回補低配層或降低槓桿。`
+      action: actionText
     };
   }
 
@@ -1093,6 +1180,10 @@ function generatePortfolioSnapshot(context) {
   if (rebalanceTargets.length === 0) {
     s += "- 目前配置落在可接受誤差內\n";
   } else {
+    const sequenceSummary = buildRebalanceSequenceSummary_(rebalanceTargets);
+    if (sequenceSummary.length > 0) {
+      s += "- 建議執行順序: " + sequenceSummary.join(" -> ") + "\n";
+    }
     rebalanceTargets.slice(0, 5).forEach(target => {
       const shortName = getRebalanceShortName_(target);
       const currentPct = (target.currentWeight * 100).toFixed(1);
@@ -1101,7 +1192,7 @@ function generatePortfolioSnapshot(context) {
 
       if (target.action === 'CLEAR') {
         s += "- " + shortName + ": 目前 " + currentPct + "%\n";
-        s += "  > 建議清理 " + Math.round(target.currentValue).toLocaleString() + " TWD";
+        s += "  > 建議清理 " + Math.round(Math.abs(target.deltaValue)).toLocaleString() + " TWD";
         if (target.executionHint) s += " | " + target.executionHint;
         s += "\n";
         return;
