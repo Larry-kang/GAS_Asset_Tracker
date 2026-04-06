@@ -158,19 +158,12 @@ function getBinanceBalance() {
         usdmRows++;
       });
       SyncManager.registerSourceCheck(result, { name: 'USD-M Futures', required: false, success: true, rows: usdmRows });
-    } else if (usdmRes.code === "-403") {
-      SyncManager.registerSourceCheck(result, {
-        name: 'USD-M Futures',
-        required: false,
-        success: false,
-        message: "Missing 'Enable Futures' API Permission. USD-M data skipped."
-      });
     } else {
       SyncManager.registerSourceCheck(result, {
         name: 'USD-M Futures',
         required: false,
         success: false,
-        message: 'USD-M futures fetch failed'
+        message: usdmRes.status || 'USD-M futures fetch failed'
       });
     }
 
@@ -204,19 +197,12 @@ function getBinanceBalance() {
         coinmRows++;
       });
       SyncManager.registerSourceCheck(result, { name: 'COIN-M Futures', required: false, success: true, rows: coinmRows });
-    } else if (coinmRes.code === "-403") {
-      SyncManager.registerSourceCheck(result, {
-        name: 'COIN-M Futures',
-        required: false,
-        success: false,
-        message: "Missing 'Enable Futures' API Permission. COIN-M data skipped."
-      });
     } else {
       SyncManager.registerSourceCheck(result, {
         name: 'COIN-M Futures',
         required: false,
         success: false,
-        message: 'COIN-M futures fetch failed'
+        message: coinmRes.status || 'COIN-M futures fetch failed'
       });
     }
 
@@ -387,7 +373,13 @@ function fetchUserAssets_(baseUrl, apiKey, apiSecret, proxyPassword) {
 
 function fetchUsdmFuturesAccount_(baseUrl, apiKey, apiSecret, proxyPassword) {
   const res = fetchBinanceApi_(baseUrl, '/fapi/v3/account', {}, apiKey, apiSecret, proxyPassword);
-  if (res.code !== "0") return { success: false, code: res.code };
+  if (res.code !== "0") {
+    return {
+      success: false,
+      code: res.code,
+      status: describeBinanceFuturesFailure_('USD-M Futures', res)
+    };
+  }
 
   return {
     success: true,
@@ -415,7 +407,13 @@ function fetchUsdmFuturesAccount_(baseUrl, apiKey, apiSecret, proxyPassword) {
 
 function fetchCoinmFuturesAccount_(baseUrl, apiKey, apiSecret, proxyPassword) {
   const res = fetchBinanceApi_(baseUrl, '/dapi/v1/account', {}, apiKey, apiSecret, proxyPassword);
-  if (res.code !== "0") return { success: false, code: res.code };
+  if (res.code !== "0") {
+    return {
+      success: false,
+      code: res.code,
+      status: describeBinanceFuturesFailure_('COIN-M Futures', res)
+    };
+  }
 
   return {
     success: true,
@@ -717,9 +715,56 @@ function fetchBinanceApi_(baseUrl, endpoint, params, apiKey, apiSecret, proxyPas
   try {
     const response = UrlFetchApp.fetch(url, options);
     const responseCode = response.getResponseCode();
-    if (responseCode === 403) return { code: "-403", msg: "Proxy or API Permission Auth Failed", endpoint: endpoint };
-    if (responseCode >= 400) return { code: responseCode.toString(), msg: response.getContentText(), endpoint: endpoint };
+    if (responseCode === 403) {
+      return {
+        code: "-403",
+        msg: response.getContentText(),
+        endpoint: endpoint,
+        httpStatus: responseCode
+      };
+    }
+    if (responseCode >= 400) {
+      return {
+        code: responseCode.toString(),
+        msg: response.getContentText(),
+        endpoint: endpoint,
+        httpStatus: responseCode
+      };
+    }
 
     return { code: "0", data: JSON.parse(response.getContentText()) };
-  } catch (e) { return { code: "-1", msg: e.message }; }
+  } catch (e) { return { code: "-1", msg: e.message, endpoint: endpoint }; }
+}
+
+function describeBinanceFuturesFailure_(market, res) {
+  const code = String((res && res.code) || '');
+  const endpoint = String((res && res.endpoint) || '');
+  const message = extractBinanceErrorMessage_(res);
+
+  if (code === '-403') {
+    return `${market} access denied. Check Futures API permission, account availability, or shared relay route (${endpoint || 'unknown endpoint'}).`;
+  }
+
+  if (code === '-1') {
+    return `${market} transport error: ${message || 'unknown transport error'}`;
+  }
+
+  if (message) {
+    return `${market} API error (${code}${endpoint ? ` @ ${endpoint}` : ''}): ${message}`;
+  }
+
+  return `${market} fetch failed (${code}${endpoint ? ` @ ${endpoint}` : ''})`;
+}
+
+function extractBinanceErrorMessage_(res) {
+  const raw = String((res && res.msg) || '').trim();
+  if (!raw) return '';
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.msg) return String(parsed.msg);
+  } catch (ignore) { }
+
+  const compact = raw.replace(/\s+/g, ' ').trim();
+  return compact.length > 180 ? `${compact.slice(0, 177)}...` : compact;
 }
