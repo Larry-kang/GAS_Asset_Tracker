@@ -4,6 +4,18 @@ function runSystemHealthCheck() {
 
     let report = "--- [SAP 系統健康狀態報告] ---\n";
     let issues = 0;
+    let warnings = 0;
+    const addWarning = function (message) {
+        report += `[注意] ${message}\n`;
+        warnings++;
+    };
+    const addFailure = function (message) {
+        report += `[失敗] ${message}\n`;
+        issues++;
+    };
+    const addPass = function (message) {
+        report += `[通過] ${message}\n`;
+    };
 
     // 1. Core Script Properties Check
     const requiredCoreProps = ["ADMIN_EMAIL"];
@@ -12,10 +24,9 @@ function runSystemHealthCheck() {
     requiredCoreProps.forEach(p => {
         const val = Settings.get(p);
         if (!val) {
-            report += `[失敗] 缺少關鍵屬性: ${p}\n`;
-            issues++;
+            addFailure(`缺少關鍵屬性: ${p}`);
         } else {
-            report += `[通過] 屬性已設定: ${p}\n`;
+            addPass(`屬性已設定: ${p}`);
         }
     });
 
@@ -23,10 +34,9 @@ function runSystemHealthCheck() {
     ExchangeRegistry.getActive().forEach(entry => {
         const credentialStatus = ExchangeRegistry.getCredentialStatus(entry);
         if (credentialStatus.ok) {
-            report += `[通過] ${entry.displayName} 憑證完整\n`;
+            addPass(`${entry.displayName} 憑證完整`);
         } else {
-            report += `[失敗] ${entry.displayName} 缺少屬性: ${credentialStatus.missing.join(", ")}\n`;
-            issues++;
+            addFailure(`${entry.displayName} 缺少屬性: ${credentialStatus.missing.join(", ")}`);
         }
     });
 
@@ -36,55 +46,154 @@ function runSystemHealthCheck() {
     const contractResults = WorkbookContracts.validateCoreSheets(ss);
     contractResults.forEach(result => {
         if (!result.ok) {
-            report += `[失敗] ${result.message}\n`;
-            issues++;
+            addFailure(result.message);
         } else {
-            report += `[通過] ${result.sheetName} 結構正常\n`;
+            addPass(`${result.sheetName} 結構正常`);
         }
     });
     const strategyInputResults = WorkbookContracts.validateStrategyInputSheets(ss);
     strategyInputResults.forEach(result => {
         if (!result.ok) {
-            report += `[失敗] ${result.message}\n`;
-            issues++;
+            addFailure(result.message);
         } else {
-            report += `[通過] ${result.sheetName} 策略輸入結構正常\n`;
+            addPass(`${result.sheetName} 策略輸入結構正常`);
         }
     });
 
-    // 3. API Connectivity (Latent Check)
-    report += "\n[IV] 網路連線診斷\n";
+    // 3. Bridge / Tunnel Diagnostics
+    report += "\n[IV] Bridge / Tunnel 診斷\n";
     const tunnelUrl = Settings.get("TUNNEL_URL");
     const proxyPass = Settings.get("PROXY_PASSWORD");
-    const targetUrl = tunnelUrl ? `${tunnelUrl}/api/v3/ping` : "https://api.binance.com/api/v3/ping";
+    const bybitEnabled = ExchangeRegistry.getCredentialStatus(ExchangeRegistry.findByFunctionName('getBybitBalance')).ok;
 
-    const params = { muteHttpExceptions: true };
-    if (proxyPass) {
-        params.headers = { 'x-proxy-auth': proxyPass };
+    if (!tunnelUrl) {
+        addFailure("缺少 TUNNEL_URL，無法做共享 tunnel 診斷。");
+    } else {
+        addPass(`共享 Tunnel URL 已設定: ${maskUrlForReport_(tunnelUrl)}`);
     }
 
-    try {
-        const res = UrlFetchApp.fetch(targetUrl, params);
-        if (res.getResponseCode() === 200) {
-            report += `[通過] 幣安 API 連線正常 ${tunnelUrl ? "(透過隧道)" : "(直接連線)"}\n`;
+    if (!proxyPass) {
+        addFailure("缺少 PROXY_PASSWORD，無法驗證共享 relay。");
+    }
+
+    if (tunnelUrl && proxyPass) {
+        const healthRes = fetchHealthEndpoint_(tunnelUrl, proxyPass, '/healthz');
+        if (healthRes.ok) {
+            addPass(`共享 Bridge 健康檢查正常${healthRes.message ? ` (${healthRes.message})` : ""}`);
         } else {
-            report += `[失敗] 幣安 API 回應錯誤: ${res.getResponseCode()}\n`;
-            issues++;
+            addWarning(`共享 Bridge /healthz 未回應正常，改由 relay 端點驗證 (${healthRes.message})`);
         }
-    } catch (e) {
-        report += `[失敗] 幣安 API 無法連線 (${e.message})\n`;
-        issues++;
+
+        const binanceRes = fetchHealthEndpoint_(tunnelUrl, proxyPass, '/api/v3/ping');
+        if (binanceRes.ok) {
+            addPass("幣安 API 連線正常 (透過隧道)");
+        } else {
+            addFailure(`幣安 API 無法連線 (${binanceRes.message})`);
+        }
+
+        if (bybitEnabled) {
+            const bybitRes = fetchHealthEndpoint_(tunnelUrl, proxyPass, '/bybit/v5/market/time');
+            if (bybitRes.ok) {
+                addPass("Bybit relay 連線正常 (共享 tunnel)");
+            } else {
+                addWarning(`Bybit relay 未就緒，可能目前為 V1 模式或 V2 未接手 (${bybitRes.message})`);
+            }
+        }
     }
+
+    // 4. Sync Freshness Diagnostics
+    report += "\n[V] 同步新鮮度診斷\n";
+    const staleHours = (Config.THRESHOLDS && Config.THRESHOLDS.SYNC_STATUS_STALE_HOURS) || 24;
+    const statusRows = SyncStatusRepo.readAll(ss);
+    ExchangeRegistry.getActive().forEach(entry => {
+        const status = statusRows.filter(row => row.exchange === entry.moduleName)[0] || null;
+        if (!status) {
+            addWarning(`${entry.displayName} 尚未建立 Sync_Status 紀錄。`);
+            return;
+        }
+
+        if (status.status !== 'COMPLETE') {
+            addFailure(`${entry.displayName} 最近一次同步狀態為 ${status.status || 'UNKNOWN'}${status.message ? ` | ${status.message}` : ""}`);
+            return;
+        }
+
+        if (!status.lastSuccess) {
+            addFailure(`${entry.displayName} 狀態為 COMPLETE，但缺少 Last Success。`);
+            return;
+        }
+
+        const ageHours = (Date.now() - status.lastSuccess.getTime()) / 36e5;
+        const lastSuccessLabel = Utilities.formatDate(status.lastSuccess, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+        if (ageHours > staleHours) {
+            addWarning(`${entry.displayName} 最近成功同步距今 ${ageHours.toFixed(1)} 小時 (${lastSuccessLabel})`);
+        } else {
+            addPass(`${entry.displayName} 最近成功同步於 ${lastSuccessLabel} (${status.rows} rows)`);
+        }
+    });
 
     report += "\n----------------------------------\n";
-    report += issues === 0 ? "總結狀態: 執行順暢。主權地位穩固。" : `總結狀態: 警告。偵測到 ${issues} 項潛在問題。`;
+    if (issues > 0) {
+        report += `總結狀態: 警告。偵測到 ${issues} 項潛在問題。`;
+    } else if (warnings > 0) {
+        report += `總結狀態: 注意。偵測到 ${warnings} 項提醒。`;
+    } else {
+        report += "總結狀態: 執行順暢。主權地位穩固。";
+    }
 
-    LogService.strategic(`健康檢查完成。問題數: ${issues}`, context);
+    LogService.strategic(`健康檢查完成。問題數: ${issues}, 提醒數: ${warnings}`, context);
 
     if (SpreadsheetApp.getUi) {
         SpreadsheetApp.getUi().alert("SAP 系統健康檢查", report, SpreadsheetApp.getUi().ButtonSet.OK);
     }
 
     return report;
+}
+
+function fetchHealthEndpoint_(baseUrl, proxyPass, path) {
+    const url = `${String(baseUrl || '').replace(/\/$/, '')}${path}`;
+    const options = {
+        muteHttpExceptions: true,
+        headers: proxyPass ? { 'x-proxy-auth': proxyPass } : {}
+    };
+
+    try {
+        const res = UrlFetchApp.fetch(url, options);
+        const code = res.getResponseCode();
+        const body = String(res.getContentText() || '').trim();
+        if (code !== 200) {
+            return { ok: false, message: `HTTP ${code}` };
+        }
+
+        if (path === '/bybit/v5/market/time') {
+            try {
+                const data = JSON.parse(body);
+                return data && String(data.retCode) === '0'
+                    ? { ok: true, message: "retCode=0" }
+                    : { ok: false, message: `Unexpected Bybit payload` };
+            } catch (e) {
+                return { ok: false, message: "Invalid JSON" };
+            }
+        }
+
+        if (path === '/healthz') {
+            try {
+                const data = JSON.parse(body);
+                const mode = data.mode || data.bridge || data.name || "";
+                return { ok: true, message: mode ? String(mode) : "" };
+            } catch (e) {
+                return { ok: true, message: "" };
+            }
+        }
+
+        return { ok: true, message: "" };
+    } catch (e) {
+        return { ok: false, message: e.message };
+    }
+}
+
+function maskUrlForReport_(url) {
+    const text = String(url || '').trim();
+    if (!text) return '';
+    return text.replace(/^https?:\/\//i, '');
 }
 

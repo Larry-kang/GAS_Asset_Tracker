@@ -16,6 +16,12 @@ const WorkbookContracts = {
             type: "headerRow",
             headers: ["Timestamp", "Level", "Module/Context", "Message"]
         },
+        SYNC_STATUS: {
+            key: "SYNC_STATUS",
+            sheetName: "Sync_Status",
+            type: "headerRow",
+            headers: ["Exchange", "Last Attempt", "Last Success", "Status", "Rows", "Message", "Updated"]
+        },
         PRICE_CACHE: {
             key: "PRICE_CACHE",
             sheetName: "價格暫存",
@@ -74,7 +80,7 @@ const WorkbookContracts = {
     },
 
     validateCoreSheets: function (ss) {
-        return this.validateSheetsByKeys_(ss, ["UNIFIED_ASSETS", "SYSTEM_LOGS", "PRICE_CACHE", "SETTINGS_MATRIX"]);
+        return this.validateSheetsByKeys_(ss, ["UNIFIED_ASSETS", "SYSTEM_LOGS", "SYNC_STATUS", "PRICE_CACHE", "SETTINGS_MATRIX"]);
     },
 
     validateStrategyInputSheets: function (ss) {

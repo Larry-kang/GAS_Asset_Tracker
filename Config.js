@@ -15,7 +15,8 @@ const Config = {
     // Thresholds & Constants
     THRESHOLDS: {
         PRICE_CACHE_MINUTES: 1, // High-frequency update
-        LOG_RETENTION_DAYS: 7
+        LOG_RETENTION_DAYS: 7,
+        SYNC_STATUS_STALE_HOURS: 24
     },
 
     // Sheet Names
