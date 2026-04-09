@@ -251,15 +251,68 @@ const WorkbookContracts = {
             throw new Error(`Workbook contract failed for "${sheet.getName()}": no portfolio rows found below header row ${headerMatch.headerRowIndex}.`);
         }
 
+        const purposeColumn = this.resolveBalanceSheetPurposeColumn_(sheet, headerMatch, lastCol);
+
         return {
             type: "balanceSheetView",
             headerRowIndex: headerMatch.headerRowIndex,
             tickerColumn: headerMatch.columns.ticker,
             valueColumn: headerMatch.columns.value,
-            purposeColumn: headerMatch.columns.purpose,
+            purposeColumn: purposeColumn,
             dataStartRow: dataStartRow,
             dataRowCount: dataRowCount
         };
+    },
+
+    resolveBalanceSheetPurposeColumn_: function (sheet, headerMatch, lastCol) {
+        const fallbackColumn = headerMatch.columns.purpose;
+        const dataStartRow = headerMatch.headerRowIndex + 1;
+        const sampleRowCount = Math.min(Math.max(sheet.getLastRow() - headerMatch.headerRowIndex, 0), 40);
+
+        if (sampleRowCount <= 0) {
+            return fallbackColumn;
+        }
+
+        const sampleValues = sheet.getRange(dataStartRow, 1, sampleRowCount, lastCol).getValues();
+        const fallbackScore = this.scoreBalanceSheetPurposeColumn_(sampleValues, fallbackColumn - 1);
+        let bestColumn = fallbackColumn;
+        let bestScore = fallbackScore;
+
+        for (let columnIndex = 0; columnIndex < lastCol; columnIndex++) {
+            const score = this.scoreBalanceSheetPurposeColumn_(sampleValues, columnIndex);
+            if (score > bestScore) {
+                bestScore = score;
+                bestColumn = columnIndex + 1;
+            }
+        }
+
+        return bestColumn;
+    },
+
+    scoreBalanceSheetPurposeColumn_: function (rows, columnIndex) {
+        if (columnIndex < 0) return -1;
+
+        let pledgeLikeCount = 0;
+        let nonEmptyCount = 0;
+        let categoryLikeCount = 0;
+
+        rows.forEach(row => {
+            const normalized = this.normalizeValue_(row[columnIndex]);
+            if (!normalized) return;
+            nonEmptyCount += 1;
+
+            if (/_pledge$/.test(normalized) || normalized.indexOf("pledge") >= 0) {
+                pledgeLikeCount += 1;
+            }
+
+            if (/支柱|安全網|戰術部位|功能部位|過渡部位|實驗部位|負債/.test(String(row[columnIndex] || ""))) {
+                categoryLikeCount += 1;
+            }
+        });
+
+        if (nonEmptyCount === 0) return -1;
+
+        return (pledgeLikeCount * 10) - categoryLikeCount;
     },
 
     validateKeyValueSheet_: function (sheet, contract) {
