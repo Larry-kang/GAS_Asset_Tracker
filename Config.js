@@ -30,6 +30,13 @@ const Config = {
     STRATEGIC: {
         REBALANCE_ABS: 0.03,
         L4_ALLOWED_TARGET: 0,
+        PRODUCT_PRIORITY: {
+            L1_ADD: ["BTC", "BTC_Spot", "IBIT"],
+            L2_ADD: ["00713", "00662", "QQQ"],
+            L2_TRIM: ["QQQ", "00662", "00713"],
+            L3_ADD: ["CASH_TWD", "CASH_FC", "BOXX"],
+            L3_TRIM: ["BOXX", "CASH_FC", "CASH_TWD"]
+        },
         PLEDGE_RATIO_SAFE: 2.5,
         PLEDGE_RATIO_ALERT: 2.1,
         PLEDGE_RATIO_CRITICAL: 1.8,

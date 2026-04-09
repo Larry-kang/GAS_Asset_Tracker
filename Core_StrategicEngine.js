@@ -654,7 +654,11 @@ function buildContext() {
   const pledgeGroups = calculateAutoPledgeRatios(rawPortfolio, indicatorsRaw);
 
   // Phase 5: 再平衡目標
-  const targets = getRebalanceTargets(assetGroups, totalGrossAssets, market);
+  const targets = enrichRebalanceTargets_(
+    getRebalanceTargets(assetGroups, totalGrossAssets, market),
+    portfolioSummary,
+    assetGroups
+  );
 
   const indicators = {
     isValid: pledgeGroups.length > 0,
@@ -829,7 +833,8 @@ function getRebalanceTargets(portfolio, assets, market) {
       priority: getRebalancePriority_(group, action, market),
       rationale: buildRebalanceRationale_(group, action, state),
       suggestedFundingSource: suggestRebalanceFundingSource_(group, action, market, overweightStates, underweightStates),
-      executionHint: buildRebalanceExecutionHint_(group, action, market, overweightStates, underweightStates)
+      executionHint: buildRebalanceExecutionHint_(group, action, market, overweightStates, underweightStates),
+      tickers: group.tickers || []
     });
   });
 
@@ -1028,17 +1033,164 @@ function buildRebalanceSequenceSummary_(targets) {
   return sequence;
 }
 
+function enrichRebalanceTargets_(targets, portfolioSummary, assetGroups) {
+  const list = Array.isArray(targets) ? targets : [];
+  return list.map(function (target) {
+    const productHints = buildRebalanceProductHints_(target, portfolioSummary, assetGroups);
+    return Object.assign({}, target, { productHints: productHints });
+  });
+}
+
+function buildRebalanceProductHints_(target, portfolioSummary, assetGroups) {
+  const ranked = rankRebalanceProducts_(target, portfolioSummary, assetGroups);
+  const primary = ranked.slice(0, 3);
+  const secondary = ranked.slice(3);
+
+  return {
+    primary: primary,
+    secondary: secondary,
+    rationale: buildRebalanceProductRationale_(target, ranked)
+  };
+}
+
+function rankRebalanceProducts_(target, portfolioSummary, assetGroups) {
+  const summary = portfolioSummary || {};
+  const group = resolveRebalanceTargetGroup_(target, assetGroups);
+  const tickers = getTargetTickers_(target, group);
+
+  if (target && target.action === 'CLEAR') {
+    return tickers
+      .map(function (ticker) {
+        return {
+          ticker: ticker,
+          value: parseFloat(summary[ticker]) || 0
+        };
+      })
+      .filter(function (item) { return item.value > 0; })
+      .sort(function (a, b) {
+        if (b.value !== a.value) return b.value - a.value;
+        return a.ticker.localeCompare(b.ticker);
+      })
+      .map(function (item) { return item.ticker; });
+  }
+
+  const positiveTickerSet = new Set(
+    tickers.filter(function (ticker) {
+      return (parseFloat(summary[ticker]) || 0) > 0;
+    })
+  );
+  const configuredPriority = getConfiguredProductPriority_(target);
+  const ordered = [];
+  const seen = new Set();
+
+  configuredPriority.forEach(function (ticker) {
+    if (!tickers.includes(ticker)) return;
+    if (target && target.action === 'TRIM' && !positiveTickerSet.has(ticker)) return;
+    if (!seen.has(ticker)) {
+      ordered.push(ticker);
+      seen.add(ticker);
+    }
+  });
+
+  const remaining = tickers
+    .filter(function (ticker) {
+      if (seen.has(ticker)) return false;
+      if (target && target.action === 'TRIM') return positiveTickerSet.has(ticker);
+      return true;
+    })
+    .sort(function (a, b) {
+      const aValue = parseFloat(summary[a]) || 0;
+      const bValue = parseFloat(summary[b]) || 0;
+      if (bValue !== aValue) return bValue - aValue;
+      return a.localeCompare(b);
+    });
+
+  remaining.forEach(function (ticker) {
+    if (!seen.has(ticker)) {
+      ordered.push(ticker);
+      seen.add(ticker);
+    }
+  });
+
+  return ordered;
+}
+
+function getConfiguredProductPriority_(target) {
+  const strategic = (Config && Config.STRATEGIC) || {};
+  const priorityMap = strategic.PRODUCT_PRIORITY || {};
+  const key = `${String((target && target.id) || '').toUpperCase()}_${String((target && target.action) || '').toUpperCase()}`;
+  return Array.isArray(priorityMap[key]) ? priorityMap[key].slice() : [];
+}
+
+function resolveRebalanceTargetGroup_(target, assetGroups) {
+  const groups = Array.isArray(assetGroups) ? assetGroups : [];
+  return groups.find(function (group) {
+    return group && target && group.id === target.id;
+  }) || null;
+}
+
+function getTargetTickers_(target, group) {
+  const source = (target && Array.isArray(target.tickers) && target.tickers.length > 0)
+    ? target.tickers
+    : (group && Array.isArray(group.tickers) ? group.tickers : []);
+  return source.filter(function (ticker, index, list) {
+    return ticker && list.indexOf(ticker) === index;
+  });
+}
+
+function buildRebalanceProductRationale_(target, rankedTickers) {
+  const tickers = Array.isArray(rankedTickers) ? rankedTickers : [];
+  if (tickers.length === 0) return '';
+
+  if (target && target.action === 'CLEAR') {
+    return '依部位大小排序，優先處理最能釋放資金的雜項資產';
+  }
+
+  if (target && target.id === 'L1' && target.action === 'ADD') {
+    return '優先補強核心 BTC 曝險，其次才是代理曝險部位';
+  }
+
+  if (target && target.id === 'L2' && target.action === 'TRIM') {
+    return '先減較偏成長或次核心的部位，再保留主要信用基底';
+  }
+
+  if (target && target.id === 'L3' && target.action === 'TRIM') {
+    return '先釋放非最核心的流動性替代部位，最後才動用法幣現金';
+  }
+
+  if (target && target.id === 'L2' && target.action === 'ADD') {
+    return '先補策略核心防禦倉，再增加成長型信用基底';
+  }
+
+  if (target && target.id === 'L3' && target.action === 'ADD') {
+    return '先補最直接可用的現金流動性，再補其他流動性工具';
+  }
+
+  return '依目前策略優先序提供商品級建議';
+}
+
+function formatRebalanceProductHint_(target) {
+  const hints = target && target.productHints;
+  const primary = hints && Array.isArray(hints.primary) ? hints.primary.filter(Boolean) : [];
+  if (primary.length === 0) return '';
+  return primary.join(', ');
+}
+
 function buildRebalanceAlert_(target) {
   const shortName = getRebalanceShortName_(target);
   const currentPct = (target.currentWeight * 100).toFixed(1);
   const targetPct = (target.targetWeight * 100).toFixed(1);
   const deltaAbs = Math.round(Math.abs(target.deltaValue)).toLocaleString();
+  const productHint = formatRebalanceProductHint_(target);
 
   if (target.action === 'CLEAR') {
     const allowedPct = (target.targetWeight * 100).toFixed(1);
     let actionText = `${target.executionHint || '優先清理雜項資產'}，並將資金回補低配層或降低槓桿。`;
     if (target.suggestedFundingSource) {
       actionText += `\n資金優先方向：${target.suggestedFundingSource}`;
+    }
+    if (productHint) {
+      actionText += `\n優先標的：${productHint}`;
     }
     return {
       level: "[配置] 再平衡建議 (清理雜項)",
@@ -1054,6 +1206,9 @@ function buildRebalanceAlert_(target) {
   }
   if (target.executionHint) {
     actionText += `\n執行提示：${target.executionHint}`;
+  }
+  if (productHint) {
+    actionText += `\n優先標的：${productHint}`;
   }
 
   return {
@@ -1195,6 +1350,10 @@ function generatePortfolioSnapshot(context) {
         s += "  > 建議清理 " + Math.round(Math.abs(target.deltaValue)).toLocaleString() + " TWD";
         if (target.executionHint) s += " | " + target.executionHint;
         s += "\n";
+        const productHint = formatRebalanceProductHint_(target);
+        if (productHint) {
+          s += "  > 優先標的: " + productHint + "\n";
+        }
         return;
       }
 
@@ -1203,6 +1362,10 @@ function generatePortfolioSnapshot(context) {
       s += "  > 建議" + actionLabel + " " + deltaAbs + " TWD";
       if (target.suggestedFundingSource) s += " | 資金方向: " + target.suggestedFundingSource;
       s += "\n";
+      const productHint = formatRebalanceProductHint_(target);
+      if (productHint) {
+        s += "  > 優先標的: " + productHint + "\n";
+      }
     });
   }
 
