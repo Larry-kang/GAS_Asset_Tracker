@@ -54,5 +54,57 @@ const PriceCacheRepo = {
             sheet: sheet,
             rowCount: dataRows.length
         };
+    },
+
+    appendRows: function (ss, rows, options) {
+        const sheet = this.getSheet_(ss, options);
+        const dataRows = (rows || []).map(row => [
+            row.ticker || "",
+            row.assetType || "",
+            row.price === undefined ? "" : row.price,
+            row.updatedAt || ""
+        ]);
+
+        if (dataRows.length === 0) {
+            return {
+                sheet: sheet,
+                rowCount: 0,
+                rows: []
+            };
+        }
+
+        const startRow = Math.max(sheet.getLastRow() + 1, 2);
+        sheet.getRange(startRow, 1, dataRows.length, this.HEADERS.length).setValues(dataRows);
+
+        const appendedRows = (rows || []).map((row, index) => ({
+            rowNumber: startRow + index,
+            ticker: row.ticker || "",
+            assetType: row.assetType || "",
+            price: row.price === undefined ? "" : row.price,
+            updatedAt: row.updatedAt || ""
+        }));
+
+        return {
+            sheet: sheet,
+            rowCount: dataRows.length,
+            rows: appendedRows
+        };
+    },
+
+    writePriceUpdates: function (ss, updates, options) {
+        const sheet = this.getSheet_(ss, options);
+        const validUpdates = (updates || []).filter(update => update && update.rowNumber > 1);
+
+        validUpdates.forEach(update => {
+            sheet.getRange(update.rowNumber, 3, 1, 2).setValues([[
+                update.price === undefined ? "" : update.price,
+                update.updatedAt || ""
+            ]]);
+        });
+
+        return {
+            sheet: sheet,
+            rowCount: validUpdates.length
+        };
     }
 };
