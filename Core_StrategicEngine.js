@@ -673,7 +673,7 @@ function buildContext() {
   // [NEW v24.11] Refined LTV Logic: Separate Active vs Global
   let activePledgedCryptoAssets = 0;
   let totalCryptoDebt = 0;
-  pledgeGroups.filter(g => g.name.toLowerCase().includes("binance") || g.name.toLowerCase().includes("okx")).forEach(g => {
+  pledgeGroups.filter(isActiveCryptoPledgeGroup_).forEach(g => {
     activePledgedCryptoAssets += g.collateralValue;
     totalCryptoDebt += g.loanAmount;
   });
@@ -759,6 +759,13 @@ function calculateAutoPledgeRatios(rawPortfolio, indicatorsRaw) {
     }
   });
   return groups;
+}
+
+function isActiveCryptoPledgeGroup_(group) {
+  const name = String((group && group.name) || '').toLowerCase();
+  if (!name) return false;
+  if (name.indexOf('stock') >= 0) return false;
+  return (parseFloat(group.loanAmount) || 0) > 0;
 }
 
 function aggregatePortfolio(rawPortfolio) {

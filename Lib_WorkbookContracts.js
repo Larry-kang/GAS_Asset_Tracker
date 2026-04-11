@@ -299,9 +299,10 @@ const WorkbookContracts = {
         rows.forEach(row => {
             const normalized = this.normalizeValue_(row[columnIndex]);
             if (!normalized) return;
+            const lower = normalized.toLowerCase();
             nonEmptyCount += 1;
 
-            if (/_pledge$/.test(normalized) || normalized.indexOf("pledge") >= 0) {
+            if (/_pledge$/.test(lower) || lower.indexOf("pledge") >= 0) {
                 pledgeLikeCount += 1;
             }
 
