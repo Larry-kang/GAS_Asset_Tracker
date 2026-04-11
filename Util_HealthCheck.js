@@ -131,6 +131,37 @@ function runSystemHealthCheck() {
         }
     });
 
+    // 5. Price Cache Diagnostics
+    report += "\n[VI] 價格資料診斷\n";
+    try {
+        const priceHealth = inspectPriceCacheHealth_(ss);
+        if (priceHealth.missingTickers.length > 0) {
+            addWarning(`價格暫存缺少資產配置標的: ${priceHealth.missingTickers.join(", ")}`);
+        } else {
+            addPass("價格暫存涵蓋所有資產配置標的");
+        }
+
+        if (priceHealth.blankTickers.length > 0) {
+            addWarning(`價格暫存有空白或無效價格: ${priceHealth.blankTickers.join(", ")}`);
+        } else {
+            addPass("價格暫存沒有空白價格");
+        }
+
+        if (priceHealth.staleTickers.length > 0) {
+            addWarning(`價格資料可能過期: ${priceHealth.staleTickers.join(", ")}`);
+        } else {
+            addPass("價格資料新鮮度正常");
+        }
+
+        if (priceHealth.lockedTickers.length > 0) {
+            addWarning(`手動鎖價列: ${priceHealth.lockedTickers.join(", ")}`);
+        } else {
+            addPass("沒有偵測到手動鎖價列");
+        }
+    } catch (e) {
+        addFailure(`價格資料診斷失敗: ${e.message || e}`);
+    }
+
     report += "\n----------------------------------\n";
     if (issues > 0) {
         report += `總結狀態: 警告。偵測到 ${issues} 項潛在問題。`;
@@ -197,3 +228,76 @@ function maskUrlForReport_(url) {
     return text.replace(/^https?:\/\//i, '');
 }
 
+function inspectPriceCacheHealth_(ss) {
+    const now = new Date();
+    const staleHours = (Config.THRESHOLDS && Config.THRESHOLDS.PRICE_HEALTH_STALE_HOURS) || 24;
+    const staleMs = staleHours * 60 * 60 * 1000;
+    const rows = PriceCacheRepo.readRows(ss);
+    const cacheLookup = {};
+    const blankTickers = [];
+    const staleTickers = [];
+    const lockedTickers = [];
+
+    rows.forEach(row => {
+        const ticker = normalizeHealthPriceTicker_(row.ticker);
+        if (!ticker) return;
+        cacheLookup[ticker] = true;
+
+        const updatedAt = parseHealthPriceDate_(row.updatedAt);
+        if (updatedAt && updatedAt.getTime() > now.getTime() + 1000) {
+            lockedTickers.push(`${ticker} until ${formatHealthCheckDate_(updatedAt)}`);
+            return;
+        }
+
+        if (!isHealthPositiveNumber_(row.price)) {
+            blankTickers.push(ticker);
+            return;
+        }
+
+        if (!updatedAt || now.getTime() - updatedAt.getTime() > staleMs) {
+            staleTickers.push(ticker);
+        }
+    });
+
+    const candidateResult = typeof readAssetAllocationPriceCandidates_ === 'function'
+        ? readAssetAllocationPriceCandidates_(ss, {})
+        : { rows: [], warnings: [] };
+    const missingTickers = [];
+    (candidateResult.rows || []).forEach(candidate => {
+        const ticker = normalizeHealthPriceTicker_(candidate.ticker);
+        if (ticker && !cacheLookup[ticker] && missingTickers.indexOf(ticker) < 0) {
+            missingTickers.push(ticker);
+        }
+    });
+
+    return {
+        missingTickers: missingTickers,
+        blankTickers: blankTickers,
+        staleTickers: staleTickers,
+        lockedTickers: lockedTickers
+    };
+}
+
+function normalizeHealthPriceTicker_(value) {
+    return String(value == null ? "" : value).trim().replace(/\s+/g, "").toUpperCase();
+}
+
+function parseHealthPriceDate_(value) {
+    if (!value) return null;
+    if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime())) return value;
+    const parsed = new Date(value);
+    return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function isHealthPositiveNumber_(value) {
+    const num = parseFloat(value);
+    return isFinite(num) && num > 0;
+}
+
+function formatHealthCheckDate_(value) {
+    try {
+        return Utilities.formatDate(value, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm");
+    } catch (e) {
+        return value.toISOString ? value.toISOString() : String(value);
+    }
+}

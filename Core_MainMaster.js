@@ -11,8 +11,18 @@ function runAutomationMaster() {
     try {
         // 1. Update Market Prices (Crypto + Stock)
         try {
-            if (typeof updateAllPrices === 'function') updateAllPrices();
-        } catch (e) { console.warn("Price update skipped/failed: " + e.message); }
+            if (typeof updateAllPrices === 'function') {
+                const priceUpdateResult = updateAllPrices();
+                if (priceUpdateResult && priceUpdateResult.fatal) {
+                    throw new Error("Price update failed before strategy run: " + (priceUpdateResult.message || priceUpdateResult.status));
+                }
+                if (priceUpdateResult && priceUpdateResult.status && priceUpdateResult.status !== 'COMPLETE') {
+                    console.warn("Price update completed with warning: " + (priceUpdateResult.message || priceUpdateResult.status));
+                }
+            }
+        } catch (e) {
+            throw new Error("Price update skipped/failed: " + e.message);
+        }
 
         // [NEW] 2. Sync Asset Balances
         // Ensure balances are fresh BEFORE running strategy
