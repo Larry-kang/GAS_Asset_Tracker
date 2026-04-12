@@ -93,10 +93,21 @@ function handleForceUpdate(data) {
   // 這裡呼叫 Binance.gs 裡面的函式 (假設其他同步函式也在此邏輯內或由 runAutomationMaster 處理)
   // 為了精確，我們觸發全系統自動化
   if (typeof runAutomationMaster === 'function') {
-    runAutomationMaster();
+    const result = runAutomationMaster();
+    if (result && result.fatal) {
+      LogService.error(`System-wide balance sync failed: ${result.message || result.status}`, context);
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "error",
+        msg: "System-wide balance sync failed.",
+        error: result.message || result.status,
+        timestamp: new Date().toISOString()
+      }));
+    }
+
     return ContentService.createTextOutput(JSON.stringify({
       status: "success",
-      msg: "System-wide balance sync triggered successfully.",
+      msg: "System-wide balance sync completed successfully.",
+      result: result || null,
       timestamp: new Date().toISOString()
     }));
   } else {

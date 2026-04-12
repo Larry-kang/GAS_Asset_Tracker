@@ -4,12 +4,44 @@
  * [Automation Master]
  * Main driver for the scheduler. Integrates price updates, balance sync, and strategic check.
  */
-function runAutomationMaster() {
+function runAutomationMaster(options) {
+    const opts = options || {};
     const context = "MasterLoop";
+    const result = {
+        status: "RUNNING",
+        ok: false,
+        fatal: false,
+        message: ""
+    };
     console.log(`[${context}] Starting Automation ${Config.VERSION} Routine...`);
 
     try {
-        // 1. Update Market Prices (Crypto + Stock)
+        // 1. Discover and update FX rates before price/strategy calculations.
+        try {
+            if (typeof syncCurrencyPairs === 'function') {
+                const pairSyncResult = syncCurrencyPairs({ silent: true });
+                if (pairSyncResult && pairSyncResult.fatal) {
+                    throw new Error("Currency pair sync failed before strategy run: " + (pairSyncResult.message || pairSyncResult.status));
+                }
+                if (pairSyncResult && pairSyncResult.status && pairSyncResult.status !== 'COMPLETE') {
+                    throw new Error("Currency pair sync did not complete: " + (pairSyncResult.message || pairSyncResult.status));
+                }
+            }
+
+            if (typeof updateAllFxRates === 'function') {
+                const fxUpdateResult = updateAllFxRates();
+                if (fxUpdateResult && fxUpdateResult.fatal) {
+                    throw new Error("FX rate update failed before strategy run: " + (fxUpdateResult.message || fxUpdateResult.status));
+                }
+                if (fxUpdateResult && fxUpdateResult.status && fxUpdateResult.status !== 'COMPLETE') {
+                    console.warn("FX rate update completed with warning: " + (fxUpdateResult.message || fxUpdateResult.status));
+                }
+            }
+        } catch (e) {
+            throw new Error("FX update skipped/failed: " + e.message);
+        }
+
+        // 2. Update Market Prices (Crypto + Stock)
         try {
             if (typeof updateAllPrices === 'function') {
                 const priceUpdateResult = updateAllPrices();
@@ -24,11 +56,11 @@ function runAutomationMaster() {
             throw new Error("Price update skipped/failed: " + e.message);
         }
 
-        // [NEW] 2. Sync Asset Balances
+        // [NEW] 3. Sync Asset Balances
         // Ensure balances are fresh BEFORE running strategy
         syncAllAssets_();
 
-        // 3. Execute Strategic Monitor (The 30-min heart)
+        // 4. Execute Strategic Monitor (The 30-min heart)
         // This reads indicators, checks logic, and updates dashboard.
         if (typeof runStrategicMonitor === 'function') {
             runStrategicMonitor();
@@ -37,8 +69,19 @@ function runAutomationMaster() {
         }
 
         console.log(`[${context}] Routine Completed.`);
+        result.status = "COMPLETE";
+        result.ok = true;
+        result.fatal = false;
+        result.message = "Routine Completed.";
+        return result;
     } catch (e) {
-        console.error(`[${context}] CRITICAL FAILURE: ${e.toString()}`);
+        result.status = "FAILED";
+        result.ok = false;
+        result.fatal = true;
+        result.message = e.toString();
+        console.error(`[${context}] CRITICAL FAILURE: ${result.message}`);
+        if (opts.throwOnFatal) throw e;
+        return result;
     }
 }
 
@@ -52,7 +95,10 @@ function runDailyCloseRoutine() {
 
     try {
         // Force a full check first (Syncs Assets + Updates Dashboard)
-        runAutomationMaster();
+        const masterResult = runAutomationMaster({ throwOnFatal: true });
+        if (masterResult && masterResult.fatal) {
+            throw new Error(`Automation master failed before daily close: ${masterResult.message || masterResult.status}`);
+        }
 
         // Wait for spreadsheet calculation propagation
         Utilities.sleep(5000);

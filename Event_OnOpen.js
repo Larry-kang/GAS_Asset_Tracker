@@ -31,6 +31,7 @@ function onOpen() {
   });
   dataMenu
     .addSeparator()
+    .addItem('更新 - 僅匯率', 'updateAllFxRates')
     .addItem('更新 - 僅市價行情', 'updateAllPrices');
 
   const guardedTestMenu = createGuardedStagingTestMenu_(ui);

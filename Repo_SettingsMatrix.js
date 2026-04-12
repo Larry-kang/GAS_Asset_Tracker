@@ -41,7 +41,7 @@ const SettingsMatrixRepo = {
         const sourceCurrencies = [];
 
         for (let columnIndex = 1; columnIndex <= lastConfiguredIndex; columnIndex += 2) {
-            const currency = this.normalizeValue_(headerRow[columnIndex]);
+            const currency = this.normalizeCurrency_(headerRow[columnIndex]);
             if (!currency) continue;
 
             targetColumns[currency] = {
@@ -52,7 +52,7 @@ const SettingsMatrixRepo = {
         }
 
         for (let rowIndex = 1; rowIndex < values.length; rowIndex++) {
-            const currency = this.normalizeValue_(values[rowIndex][0]);
+            const currency = this.normalizeCurrency_(values[rowIndex][0]);
             if (!currency) continue;
 
             sourceRows[currency] = rowIndex + 1;
@@ -74,8 +74,10 @@ const SettingsMatrixRepo = {
 
     lookupRate: function (ss, fromCurrency, toCurrency, options) {
         const matrix = this.readMatrix(ss, options);
-        const rowNumber = matrix.sourceRows[fromCurrency];
-        const targetMeta = matrix.targetColumns[toCurrency];
+        const normalizedFrom = this.normalizeCurrency_(fromCurrency);
+        const normalizedTo = this.normalizeCurrency_(toCurrency);
+        const rowNumber = matrix.sourceRows[normalizedFrom];
+        const targetMeta = matrix.targetColumns[normalizedTo];
 
         if (!rowNumber || !targetMeta) {
             return {
@@ -88,8 +90,105 @@ const SettingsMatrixRepo = {
         return {
             sheet: matrix.sheet,
             hasPair: true,
+            from: normalizedFrom,
+            to: normalizedTo,
+            rowNumber: rowNumber,
+            valueColumn: targetMeta.valueColumn,
+            timestampColumn: targetMeta.timestampColumn,
             value: matrix.values[rowNumber - 1][targetMeta.valueColumn - 1],
             timestamp: matrix.values[rowNumber - 1][targetMeta.timestampColumn - 1]
+        };
+    },
+
+    listPairs: function (ss, options) {
+        const matrix = this.readMatrix(ss, options);
+        const pairs = [];
+
+        matrix.sourceCurrencies.forEach(fromCurrency => {
+            matrix.targetCurrencies.forEach(toCurrency => {
+                const rowNumber = matrix.sourceRows[fromCurrency];
+                const targetMeta = matrix.targetColumns[toCurrency];
+                if (!rowNumber || !targetMeta) return;
+
+                pairs.push({
+                    from: fromCurrency,
+                    to: toCurrency,
+                    rowNumber: rowNumber,
+                    valueColumn: targetMeta.valueColumn,
+                    timestampColumn: targetMeta.timestampColumn,
+                    currentValue: matrix.values[rowNumber - 1][targetMeta.valueColumn - 1],
+                    currentTimestamp: matrix.values[rowNumber - 1][targetMeta.timestampColumn - 1]
+                });
+            });
+        });
+
+        return {
+            sheet: matrix.sheet,
+            pairs: pairs
+        };
+    },
+
+    readPairAt: function (ss, pairMeta, options) {
+        const sheet = this.getSheet_(ss, options);
+        const from = this.normalizeCurrency_(pairMeta && pairMeta.from);
+        const to = this.normalizeCurrency_(pairMeta && pairMeta.to);
+        const rowNumber = Number(pairMeta && pairMeta.rowNumber);
+        const valueColumn = Number(pairMeta && pairMeta.valueColumn);
+        const timestampColumn = Number(pairMeta && pairMeta.timestampColumn);
+
+        if (!from || !to || !rowNumber || !valueColumn || !timestampColumn) {
+            return {
+                sheet: sheet,
+                exists: false,
+                message: "Invalid pair metadata."
+            };
+        }
+
+        const rowCurrency = this.normalizeCurrency_(sheet.getRange(rowNumber, 1).getValue());
+        const targetCurrency = this.normalizeCurrency_(sheet.getRange(1, valueColumn).getValue());
+        if (rowCurrency !== from || targetCurrency !== to) {
+            return {
+                sheet: sheet,
+                exists: false,
+                from: from,
+                to: to,
+                rowNumber: rowNumber,
+                valueColumn: valueColumn,
+                timestampColumn: timestampColumn,
+                rowCurrency: rowCurrency,
+                targetCurrency: targetCurrency,
+                message: `Pair moved or changed. Expected ${from}/${to}, got ${rowCurrency || "(blank)"}/${targetCurrency || "(blank)"}.`
+            };
+        }
+
+        const values = sheet.getRange(rowNumber, valueColumn, 1, 2).getValues()[0];
+        return {
+            sheet: sheet,
+            exists: true,
+            from: from,
+            to: to,
+            rowNumber: rowNumber,
+            valueColumn: valueColumn,
+            timestampColumn: timestampColumn,
+            value: values[0],
+            timestamp: values[1]
+        };
+    },
+
+    writeRateUpdates: function (ss, updates, options) {
+        const sheet = this.getSheet_(ss, options);
+        const validUpdates = (updates || []).filter(update => update && update.rowNumber > 1 && update.valueColumn > 1);
+
+        validUpdates.forEach(update => {
+            sheet.getRange(update.rowNumber, update.valueColumn, 1, 2).setValues([[
+                update.rate === undefined ? "" : update.rate,
+                update.updatedAt || ""
+            ]]);
+        });
+
+        return {
+            sheet: sheet,
+            rowCount: validUpdates.length
         };
     },
 
@@ -143,8 +242,8 @@ const SettingsMatrixRepo = {
     normalizePairs_: function (pairs) {
         return (pairs || [])
             .map(pair => ({
-                from: this.normalizeValue_(pair && pair.from),
-                to: this.normalizeValue_(pair && pair.to)
+                from: this.normalizeCurrency_(pair && pair.from),
+                to: this.normalizeCurrency_(pair && pair.to)
             }))
             .filter(pair => pair.from && pair.to);
     },
@@ -168,5 +267,9 @@ const SettingsMatrixRepo = {
 
     normalizeValue_: function (value) {
         return String(value == null ? "" : value).trim();
+    },
+
+    normalizeCurrency_: function (value) {
+        return this.normalizeValue_(value).toUpperCase();
     }
 };
