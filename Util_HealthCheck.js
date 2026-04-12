@@ -162,6 +162,65 @@ function runSystemHealthCheck() {
         addFailure(`價格資料診斷失敗: ${e.message || e}`);
     }
 
+    // 6. FX Rate Diagnostics
+    report += "\n[VII] 匯率資料診斷\n";
+    try {
+        const fxHealth = inspectFxRateHealth_(ss);
+        if (fxHealth.missingRequiredPairs.length > 0) {
+            addFailure(`參數設定缺少必要貨幣對: ${fxHealth.missingRequiredPairs.join(", ")}`);
+        } else {
+            addPass("參數設定涵蓋所有必要貨幣對");
+        }
+
+        if (fxHealth.invalidRequiredPairs.length > 0) {
+            addFailure(`必要匯率有空白或無效值: ${fxHealth.invalidRequiredPairs.join(", ")}`);
+        } else {
+            addPass("必要匯率沒有空白或無效值");
+        }
+
+        if (fxHealth.invalidOptionalPairs.length > 0) {
+            addWarning(`非必要匯率尚未維護: ${fxHealth.invalidOptionalPairs.join(", ")}`);
+        } else {
+            addPass("非必要匯率沒有空白或無效值");
+        }
+
+        if (fxHealth.blankRequiredTimestampPairs.length > 0) {
+            addWarning(`必要匯率缺少更新時間: ${fxHealth.blankRequiredTimestampPairs.join(", ")}`);
+        }
+
+        if (fxHealth.blankOptionalTimestampPairs.length > 0) {
+            addWarning(`非必要匯率缺少更新時間: ${fxHealth.blankOptionalTimestampPairs.join(", ")}`);
+        }
+
+        if (fxHealth.blankRequiredTimestampPairs.length === 0 && fxHealth.blankOptionalTimestampPairs.length === 0) {
+            addPass("匯率矩陣更新時間完整");
+        }
+
+        if (fxHealth.staleRequiredPairs.length > 0) {
+            addWarning(`必要匯率資料可能過期: ${fxHealth.staleRequiredPairs.join(", ")}`);
+        } else {
+            addPass("必要匯率資料新鮮度正常");
+        }
+
+        if (fxHealth.staleOptionalPairs.length > 0) {
+            addWarning(`非必要匯率資料可能過期: ${fxHealth.staleOptionalPairs.join(", ")}`);
+        } else {
+            addPass("非必要匯率資料新鮮度正常");
+        }
+
+        if (!fxHealth.fixedUsdTwd.ok) {
+            addFailure(fxHealth.fixedUsdTwd.message);
+        } else {
+            addPass(fxHealth.fixedUsdTwd.message);
+        }
+
+        if (fxHealth.fixedUsdTwd.staleMessage) {
+            addWarning(fxHealth.fixedUsdTwd.staleMessage);
+        }
+    } catch (e) {
+        addFailure(`匯率資料診斷失敗: ${e.message || e}`);
+    }
+
     report += "\n----------------------------------\n";
     if (issues > 0) {
         report += `總結狀態: 警告。偵測到 ${issues} 項潛在問題。`;
@@ -300,4 +359,152 @@ function formatHealthCheckDate_(value) {
     } catch (e) {
         return value.toISOString ? value.toISOString() : String(value);
     }
+}
+
+function inspectFxRateHealth_(ss) {
+    const now = new Date();
+    const staleHours = (Config.THRESHOLDS && Config.THRESHOLDS.FX_RATE_STALE_HOURS) || 24;
+    const staleMs = staleHours * 60 * 60 * 1000;
+    const settingsOptions = {};
+    const matrix = SettingsMatrixRepo.readMatrix(ss, settingsOptions);
+    const pairResult = SettingsMatrixRepo.listPairs(ss, settingsOptions);
+    const requiredPairsResult = typeof collectRequiredCurrencyPairs_ === 'function'
+        ? collectRequiredCurrencyPairs_(ss, { settingsSheetName: SettingsMatrixRepo.DEFAULT_SHEET_NAME })
+        : { pairs: [] };
+    const requiredPairs = buildHealthRequiredFxPairs_(requiredPairsResult.pairs);
+    const requiredPairLookup = buildHealthFxPairLookup_(requiredPairs);
+    const missingRequiredPairs = [];
+    const invalidRequiredPairs = [];
+    const invalidOptionalPairs = [];
+    const blankRequiredTimestampPairs = [];
+    const blankOptionalTimestampPairs = [];
+    const staleRequiredPairs = [];
+    const staleOptionalPairs = [];
+
+    requiredPairs.forEach(pair => {
+        const from = normalizeHealthCurrency_(pair.from);
+        const to = normalizeHealthCurrency_(pair.to);
+        if (!from || !to) return;
+        if (!matrix.sourceRows[from] || !matrix.targetColumns[to]) {
+            missingRequiredPairs.push(`${from}/${to}`);
+        }
+    });
+
+    (pairResult.pairs || []).forEach(pair => {
+        const pairLabel = `${pair.from}/${pair.to}`;
+        const timestamp = parseHealthPriceDate_(pair.currentTimestamp);
+        const isRequired = !!requiredPairLookup[buildHealthFxPairKey_(pair.from, pair.to)];
+
+        if (!isHealthPositiveNumber_(pair.currentValue)) {
+            if (isRequired) {
+                invalidRequiredPairs.push(pairLabel);
+            } else {
+                invalidOptionalPairs.push(pairLabel);
+            }
+            return;
+        }
+
+        if (!timestamp) {
+            if (isRequired) {
+                blankRequiredTimestampPairs.push(pairLabel);
+            } else {
+                blankOptionalTimestampPairs.push(pairLabel);
+            }
+            return;
+        }
+
+        if (now.getTime() - timestamp.getTime() > staleMs) {
+            const label = `${pairLabel} last updated ${formatHealthCheckDate_(timestamp)}`;
+            if (isRequired) {
+                staleRequiredPairs.push(label);
+            } else {
+                staleOptionalPairs.push(label);
+            }
+        }
+    });
+
+    return {
+        missingRequiredPairs: missingRequiredPairs,
+        invalidRequiredPairs: invalidRequiredPairs,
+        invalidOptionalPairs: invalidOptionalPairs,
+        blankRequiredTimestampPairs: blankRequiredTimestampPairs,
+        blankOptionalTimestampPairs: blankOptionalTimestampPairs,
+        staleRequiredPairs: staleRequiredPairs,
+        staleOptionalPairs: staleOptionalPairs,
+        fixedUsdTwd: inspectFixedUsdTwdReference_(matrix.sheet, now, staleMs)
+    };
+}
+
+function buildHealthRequiredFxPairs_(pairs) {
+    const required = [];
+    const lookup = {};
+
+    (pairs || []).forEach(pair => {
+        const from = normalizeHealthCurrency_(pair.from);
+        const to = normalizeHealthCurrency_(pair.to);
+        if (!from || !to) return;
+        const key = buildHealthFxPairKey_(from, to);
+        if (lookup[key]) return;
+        lookup[key] = true;
+        required.push({ from: from, to: to });
+    });
+
+    const mandatoryKey = buildHealthFxPairKey_("USD", "TWD");
+    if (!lookup[mandatoryKey]) {
+        required.push({ from: "USD", to: "TWD" });
+    }
+
+    return required;
+}
+
+function buildHealthFxPairLookup_(pairs) {
+    const lookup = {};
+    (pairs || []).forEach(pair => {
+        lookup[buildHealthFxPairKey_(pair.from, pair.to)] = true;
+    });
+    return lookup;
+}
+
+function buildHealthFxPairKey_(from, to) {
+    return `${normalizeHealthCurrency_(from)}__${normalizeHealthCurrency_(to)}`;
+}
+
+function inspectFixedUsdTwdReference_(sheet, now, staleMs) {
+    const b1 = normalizeHealthCurrency_(sheet.getRange("B1").getValue());
+    const a4 = normalizeHealthCurrency_(sheet.getRange("A4").getValue());
+    const b4 = sheet.getRange("B4").getValue();
+    const c4 = sheet.getRange("C4").getValue();
+    const errors = [];
+
+    if (b1 !== "TWD") errors.push(`B1 expected TWD got ${b1 || "(blank)"}`);
+    if (a4 !== "USD") errors.push(`A4 expected USD got ${a4 || "(blank)"}`);
+    if (!isHealthPositiveNumber_(b4)) errors.push(`B4 expected positive USD/TWD rate got ${b4 || "(blank)"}`);
+
+    const timestamp = parseHealthPriceDate_(c4);
+    let staleMessage = "";
+    if (timestamp && now.getTime() - timestamp.getTime() > staleMs) {
+        staleMessage = `固定位置 USD/TWD 可能過期: '參數設定'!$B$4 last updated ${formatHealthCheckDate_(timestamp)}`;
+    }
+
+    if (!timestamp) {
+        staleMessage = "固定位置 USD/TWD 缺少更新時間: '參數設定'!$C$4";
+    }
+
+    if (errors.length > 0) {
+        return {
+            ok: false,
+            message: `固定位置 USD/TWD 語意異常: ${errors.join("; ")}`,
+            staleMessage: staleMessage
+        };
+    }
+
+    return {
+        ok: true,
+        message: "固定位置 USD/TWD 語意正常: '參數設定'!$B$4",
+        staleMessage: staleMessage
+    };
+}
+
+function normalizeHealthCurrency_(value) {
+    return String(value == null ? "" : value).trim().toUpperCase();
 }
