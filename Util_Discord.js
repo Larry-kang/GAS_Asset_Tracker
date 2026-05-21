@@ -9,6 +9,8 @@
  */
 
 const Discord = {
+    MAX_EMBED_DESCRIPTION_LENGTH: 3900,
+
     // Mapping level to colors (Decimal for Discord)
     COLORS: {
         INFO: 3447003,    // Blue
@@ -42,6 +44,8 @@ const Discord = {
                 this._sendToEmail(adminEmail, title, description, level);
             }
         }
+
+        return discordSuccess;
     },
 
     /**
@@ -54,11 +58,12 @@ const Discord = {
             Utilities.sleep(100);
 
             const color = this.COLORS[level] || this.COLORS.INFO;
+            const safeDescription = this._truncateEmbedDescription(description);
 
             const payload = {
                 embeds: [{
                     title: title,
-                    description: description,
+                    description: safeDescription,
                     color: color,
                     timestamp: new Date().toISOString(),
                     footer: {
@@ -77,15 +82,25 @@ const Discord = {
             const response = UrlFetchApp.fetch(url, options);
             // Discord returns 204 No Content on success
             if (response.getResponseCode() === 204) {
+                console.log("Discord webhook delivered successfully.");
                 return true;
             } else {
-                console.error(`Discord JSON Error: ${response.getContentText()}`);
+                console.error(`Discord JSON Error (${response.getResponseCode()}): ${response.getContentText()}`);
                 return false;
             }
         } catch (e) {
             console.error(`Discord Webhook Failed: ${e.toString()}`);
             return false;
         }
+    },
+
+    _truncateEmbedDescription: function (description) {
+        const text = String(description || "");
+        const maxLength = this.MAX_EMBED_DESCRIPTION_LENGTH;
+        if (text.length <= maxLength) return text;
+
+        const suffix = "\n\n...[Discord 訊息過長，已截斷；完整內容請看 Email 或 GAS 報告]";
+        return text.substring(0, maxLength - suffix.length) + suffix;
     },
 
     /**

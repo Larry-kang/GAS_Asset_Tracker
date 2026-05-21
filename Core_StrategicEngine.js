@@ -1867,16 +1867,20 @@ function broadcastReport_(context, alerts = []) {
   // 1. Email Channel
   const emailRecipient = getAdminEmail_();
   if (emailRecipient) {
-    let subject = hasAlerts ? "[SAP 戰略顧問] 需要採取行動" : "[SAP 每日狀態] 一切正常";
-    let body = hasAlerts ? "戰略夥伴，\n分析顯示需要進行再平衡：\n\n" : "戰略夥伴，\n目前系統運作正常。\n\n";
+    try {
+      let subject = hasAlerts ? "[SAP 戰略顧問] 需要採取行動" : "[SAP 每日狀態] 一切正常";
+      let body = hasAlerts ? "戰略夥伴，\n分析顯示需要進行再平衡：\n\n" : "戰略夥伴，\n目前系統運作正常。\n\n";
 
-    if (hasAlerts) {
-      alerts.forEach(a => { body += "**" + a.level + "**\n" + a.message + "\n指令: " + a.action + "\n\n"; });
+      if (hasAlerts) {
+        alerts.forEach(a => { body += "**" + a.level + "**\n" + a.message + "\n指令: " + a.action + "\n\n"; });
+      }
+      body += snapshot;
+
+      MailApp.sendEmail(emailRecipient, subject, body);
+      console.log(`[Broadcast] Email sent to ${emailRecipient}`);
+    } catch (e) {
+      console.error(`[Broadcast] Email failed: ${e.toString()}`);
     }
-    body += snapshot;
-
-    MailApp.sendEmail(emailRecipient, subject, body);
-    console.log(`[Broadcast] Email sent to ${emailRecipient}`);
   }
 
   // 2. Discord Channel (Sync)
@@ -1895,6 +1899,9 @@ function broadcastReport_(context, alerts = []) {
     // Add Snapshot in Code Block for monospace alignment
     description += "```yaml\n" + snapshot.replace(/`/g, '') + "\n```";
 
-    Discord.sendAlert(title, description, color);
+    const discordSent = Discord.sendAlert(title, description, color);
+    console.log(`[Broadcast] Discord sent: ${discordSent}`);
+  } else {
+    console.warn("[Broadcast] Discord utility is not loaded.");
   }
 }
