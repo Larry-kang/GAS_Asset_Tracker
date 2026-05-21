@@ -48,6 +48,262 @@ function buildFreshContext() {
   return buildContext();
 }
 
+function toFiniteNumber_(value) {
+  const num = parseFloat(value);
+  return isFinite(num) ? num : null;
+}
+
+function calculateBtcDrawdownFromATH_(btcPrice, sapBaseATH) {
+  const price = toFiniteNumber_(btcPrice);
+  const ath = toFiniteNumber_(sapBaseATH);
+  if (price === null || ath === null || price <= 0 || ath <= 0) return null;
+  return (price - ath) / ath;
+}
+
+function createBtcRegime_(config) {
+  return {
+    regime: config.regime,
+    phaseLabel: config.phaseLabel,
+    action: config.action,
+    restockMode: config.restockMode || "OFF",
+    restockAllowed: !!config.restockAllowed,
+    targetLtvMin: config.targetLtvMin || 0,
+    targetLtvMax: config.targetLtvMax || 0,
+    allocationBias: config.allocationBias || "MANUAL_REVIEW",
+    severity: config.severity || "INFO",
+    reason: config.reason || "Manual review required",
+    guardrailMessage: config.guardrailMessage || "",
+    guardrailAction: config.guardrailAction || ""
+  };
+}
+
+function applyBtcRestockGate_(regime, cryptoLTV, survivalRunway) {
+  const ltv = Math.max(toFiniteNumber_(cryptoLTV) || 0, 0);
+  const runway = toFiniteNumber_(survivalRunway);
+  const accumulationModes = ["NORMAL", "EXTENDED", "PANIC"];
+  const isAccumulationMode = accumulationModes.indexOf(regime.restockMode) >= 0;
+
+  if (!isAccumulationMode) return regime;
+
+  if (ltv >= 0.35) {
+    return Object.assign({}, regime, {
+      restockAllowed: false,
+      restockMode: "OFF",
+      severity: "WARN",
+      guardrailMessage: "Active Crypto LTV 已超過 35%，停止新增借款。",
+      guardrailAction: "停止新增借款，優先還款或只保留必要現金流 DCA。"
+    });
+  }
+
+  if (ltv >= 0.325) {
+    return Object.assign({}, regime, {
+      restockAllowed: false,
+      restockMode: "DCA_ONLY",
+      severity: "WARN",
+      guardrailMessage: "Active Crypto LTV 已超過 32.5%，暫停借款買入。",
+      guardrailAction: "只允許用現金流 DCA，不新增質押借款。"
+    });
+  }
+
+  if (runway !== null && runway < 6) {
+    return Object.assign({}, regime, {
+      restockAllowed: false,
+      restockMode: "DCA_ONLY",
+      severity: "WARN",
+      guardrailMessage: "生存跑道低於 6 個月，暫停戰術加碼。",
+      guardrailAction: "先補足流動性緩衝，再恢復 restock。"
+    });
+  }
+
+  return Object.assign({}, regime, { restockAllowed: true });
+}
+
+function getBtcRegime_(btcMM, btcDrawdown, cryptoLTV, survivalRunway) {
+  const mm = toFiniteNumber_(btcMM);
+  const drawdown = toFiniteNumber_(btcDrawdown);
+  const ltv = Math.max(toFiniteNumber_(cryptoLTV) || 0, 0);
+
+  if (ltv >= 0.50) {
+    return createBtcRegime_({
+      regime: "HARD_CAP_BREACH",
+      phaseLabel: "Crypto LTV 硬上限突破",
+      action: "FORCE_DELEVERAGE",
+      restockMode: "DEFCON",
+      targetLtvMin: 0,
+      targetLtvMax: 0,
+      allocationBias: "DEBT_REDUCTION",
+      severity: "CRITICAL",
+      reason: "Crypto LTV >= 50%",
+      guardrailMessage: "Active Crypto LTV 已超過 50% 硬紅線。",
+      guardrailAction: "強制去槓桿，停止所有買入。"
+    });
+  }
+
+  if (ltv >= 0.45) {
+    return createBtcRegime_({
+      regime: "DEFCON_1",
+      phaseLabel: "DEFCON 1 去槓桿",
+      action: "STOP_BUYING_REPAY_DEBT",
+      restockMode: "DEFCON",
+      targetLtvMin: 0,
+      targetLtvMax: 0,
+      allocationBias: "DEBT_REDUCTION",
+      severity: "CRITICAL",
+      reason: "Crypto LTV >= 45%",
+      guardrailMessage: "Active Crypto LTV 已超過 45% 警戒線。",
+      guardrailAction: "停止所有買入，優先還款降槓桿。"
+    });
+  }
+
+  if (mm === null) {
+    return createBtcRegime_({
+      regime: "MANUAL_REVIEW",
+      phaseLabel: "缺少 BTC_MM，需手動檢查",
+      action: "MANUAL_REVIEW",
+      restockMode: "OFF",
+      targetLtvMin: 0,
+      targetLtvMax: 0,
+      allocationBias: "MANUAL_REVIEW",
+      severity: "WARN",
+      reason: "BTC_MM missing"
+    });
+  }
+
+  if (mm >= 2.10) {
+    return createBtcRegime_({
+      regime: "BUBBLE",
+      phaseLabel: "泡沫 / 高熱區",
+      action: "DE_RISK",
+      restockMode: "OFF",
+      targetLtvMin: 0,
+      targetLtvMax: 0,
+      allocationBias: "RISK_OFF",
+      severity: "WARN",
+      reason: "BTC_MM >= 2.10"
+    });
+  }
+
+  if (mm >= 1.50) {
+    return createBtcRegime_({
+      regime: "DE_RISK",
+      phaseLabel: "去槓桿區",
+      action: "REPAY_AND_UNWRAP",
+      restockMode: "OFF",
+      targetLtvMin: 0,
+      targetLtvMax: 0.10,
+      allocationBias: "DE_RISK",
+      severity: "WARN",
+      reason: "BTC_MM >= 1.50"
+    });
+  }
+
+  if (mm < 0.80 || (drawdown !== null && drawdown <= -0.50)) {
+    return applyBtcRestockGate_(createBtcRegime_({
+      regime: "PANIC_ACCUMULATE",
+      phaseLabel: "恐慌低點累積區",
+      action: "PANIC_RESTOCK",
+      restockMode: "PANIC",
+      targetLtvMin: 0.30,
+      targetLtvMax: 0.40,
+      allocationBias: "MAX_L1_ACCUMULATE",
+      severity: "INFO",
+      reason: mm < 0.80 ? "BTC_MM < 0.80" : "Drawdown <= -50%"
+    }), ltv, survivalRunway);
+  }
+
+  if (mm < 1.00) {
+    return applyBtcRestockGate_(createBtcRegime_({
+      regime: "ACCUMULATE",
+      phaseLabel: "強力累積區",
+      action: "NORMAL_RESTOCK",
+      restockMode: "NORMAL",
+      targetLtvMin: 0.25,
+      targetLtvMax: 0.30,
+      allocationBias: "L1_ACCUMULATE",
+      severity: "INFO",
+      reason: "BTC_MM < 1.00"
+    }), ltv, survivalRunway);
+  }
+
+  if (mm < 1.15 && drawdown !== null && drawdown <= -0.30) {
+    return applyBtcRestockGate_(createBtcRegime_({
+      regime: "EXTENDED_ACCUMULATE",
+      phaseLabel: "熊市均線下修延長累積區",
+      action: "REDUCED_RESTOCK",
+      restockMode: "EXTENDED",
+      targetLtvMin: 0.20,
+      targetLtvMax: 0.30,
+      allocationBias: "EXTENDED_L1_ACCUMULATE",
+      severity: "INFO",
+      reason: "BTC_MM < 1.15 and Drawdown <= -30%"
+    }), ltv, survivalRunway);
+  }
+
+  if (mm < 1.50) {
+    return createBtcRegime_({
+      regime: "NEUTRAL",
+      phaseLabel: "中性區 / 固定 DCA",
+      action: "DCA_ONLY",
+      restockMode: "DCA_ONLY",
+      targetLtvMin: 0.20,
+      targetLtvMax: 0.25,
+      allocationBias: "NEUTRAL",
+      severity: "INFO",
+      reason: "BTC_MM between 1.00 and 1.50 without deep drawdown"
+    });
+  }
+
+  return createBtcRegime_({
+    regime: "MANUAL_REVIEW",
+    phaseLabel: "未知狀態，需手動檢查",
+    action: "MANUAL_REVIEW",
+    restockMode: "OFF",
+    targetLtvMin: 0,
+    targetLtvMax: 0,
+    allocationBias: "MANUAL_REVIEW",
+    severity: "WARN",
+    reason: "No BTC regime matched"
+  });
+}
+
+function getBtcAllocationTargets_(btcRegime) {
+  const regime = btcRegime && btcRegime.regime;
+  const targets = {
+    PANIC_ACCUMULATE: { L1: 0.75, L2: 0.15, L3: 0.10 },
+    ACCUMULATE: { L1: 0.70, L2: 0.20, L3: 0.10 },
+    EXTENDED_ACCUMULATE: { L1: 0.68, L2: 0.22, L3: 0.10 },
+    NEUTRAL: { L1: 0.65, L2: 0.25, L3: 0.10 },
+    DE_RISK: { L1: 0.60, L2: 0.30, L3: 0.10 },
+    BUBBLE: { L1: 0.50, L2: 0.30, L3: 0.20 }
+  };
+  return targets[regime] || null;
+}
+
+function shouldSuppressAggressiveBtcBuying_(btcRegime) {
+  if (!btcRegime) return false;
+  return btcRegime.restockAllowed !== true;
+}
+
+function formatPercent_(value, digits) {
+  const num = toFiniteNumber_(value);
+  if (num === null) return "N/A";
+  const precision = digits === undefined ? 0 : digits;
+  return (num * 100).toFixed(precision) + "%";
+}
+
+function formatBtcLtvRange_(btcRegime) {
+  if (!btcRegime) return "N/A";
+  if (btcRegime.targetLtvMin === btcRegime.targetLtvMax) {
+    return formatPercent_(btcRegime.targetLtvMax, 0);
+  }
+  return formatPercent_(btcRegime.targetLtvMin, 0) + " - " + formatPercent_(btcRegime.targetLtvMax, 0);
+}
+
+function buildCryptoLtvGuardrailAction_(btcRegime) {
+  if (!btcRegime || !btcRegime.guardrailAction) return "";
+  return btcRegime.guardrailAction;
+}
+
 const RULES = [
   {
     name: "ATH Breakout Monitor",
@@ -93,13 +349,50 @@ const RULES = [
           };
         }
 
+        let actionText = "執行買入: TWD " + estCost.toLocaleString() + " 等值 BTC。\n(執行後請手動更新 `Total_Martingale_Spent` += " + estCost + ")";
+        if (shouldSuppressAggressiveBtcBuying_(context.market.btcRegime)) {
+          actionText = "狙擊訊號成立，但目前 BTC Regime 為 " + context.market.btcRegime.regime +
+            " / Restock Mode: " + context.market.btcRegime.restockMode + "。\n" +
+            (buildCryptoLtvGuardrailAction_(context.market.btcRegime) || "暫不執行戰術買入，只保留固定 DCA 或手動檢查。");
+        }
+
         return {
           level: "[攻擊] 狙擊信號 (Sniper)",
           message: "BTC 回調 " + (currentDrop * 100).toFixed(1) + "% (基準: $" + context.market.sapBaseATH + "). 進入 " + activeLevel.name,
-          action: "執行買入: TWD " + estCost.toLocaleString() + " 等值 BTC。\n(執行後請手動更新 `Total_Martingale_Spent` += " + estCost + ")"
+          action: actionText
         };
       }
       return null;
+    }
+  },
+  {
+    name: "Crypto LTV Guardrail",
+    phase: "All",
+    condition: function (context) {
+      return context.indicators && context.indicators.cryptoLTV >= 0.325;
+    },
+    getAction: function (context) {
+      const ltv = context.indicators.cryptoLTV;
+      const btcRegime = context.market.btcRegime || getBtcRegime_(context.market.btcMM, context.market.btcDrawdownFromATH, ltv, context.indicators.survivalRunway);
+      let level = "[注意] Crypto LTV Guardrail";
+      let action = "只允許用現金流 DCA，不新增質押借款。";
+
+      if (ltv >= 0.50) {
+        level = "[嚴重] Crypto LTV 硬上限突破";
+        action = "強制去槓桿，停止所有買入。";
+      } else if (ltv >= 0.45) {
+        level = "[嚴重] DEFCON 1 Crypto LTV";
+        action = "停止所有買入，優先還款降槓桿。";
+      } else if (ltv >= 0.35) {
+        level = "[警告] Crypto LTV 停止借款區";
+        action = "停止新增借款，優先還款或只保留必要現金流 DCA。";
+      }
+
+      return {
+        level: level,
+        message: "Active Crypto LTV 目前為 " + formatPercent_(ltv, 1) + "；BTC Regime: " + btcRegime.regime,
+        action: btcRegime.guardrailAction || action
+      };
     }
   },
   {
@@ -117,6 +410,14 @@ const RULES = [
       // Priority 1: Check L1 Spot Ratio
       const l1Target = context.assetGroups ? context.assetGroups[0].target : 0.60;
       if (context.indicators.l1SpotRatio < l1Target) {
+        const btcRegime = context.market.btcRegime;
+        if (shouldSuppressAggressiveBtcBuying_(btcRegime)) {
+          return {
+            level: "[風控] 資金流向暫停補強 BTC",
+            message: "L1 現貨佔比 (" + (context.indicators.l1SpotRatio * 100).toFixed(1) + "%) 低於 " + (l1Target * 100).toFixed(0) + "%，但 BTC Regime 為 " + btcRegime.regime + " / " + btcRegime.restockMode + "。",
+            action: buildCryptoLtvGuardrailAction_(btcRegime) || "只維持基本 DCA，不做一次性 BTC restock。"
+          };
+        }
         return {
           level: "[配置] 資金流向建議 (補強地基)",
           message: "L1 現貨佔比 (" + (context.indicators.l1SpotRatio * 100).toFixed(1) + "%) 低於 " + (l1Target * 100).toFixed(0) + "%。",
@@ -561,6 +862,8 @@ function buildContext() {
     maxMartingaleBudget: indicatorsRaw.MAX_MARTINGALE_BUDGET || 437000,
     // [NEW v24.10]
     btcMM: indicatorsRaw.BTC_MM || null,
+    btcDrawdownFromATH: null,
+    btcRegime: null,
     usdTwdRate: 32.5,
     surplus: 0,
     // [NEW v24.13] TW Weighted MM Calculation
@@ -594,10 +897,23 @@ function buildContext() {
   const survivalRunway = monthlyDebt > 0 ? (liquidity / monthlyDebt) : 99;
 
   market.surplus = liquidity - (monthlyDebt * 6); // Keep 6 months buffer for surplus check
+  market.btcDrawdownFromATH = calculateBtcDrawdownFromATH_(market.btcPrice, market.sapBaseATH);
+
+  // Phase 4: 自動質押引擎與 active crypto LTV
+  const pledgeGroups = calculateAutoPledgeRatios(rawPortfolio, indicatorsRaw);
+  let activePledgedCryptoAssets = 0;
+  let totalCryptoDebt = 0;
+  pledgeGroups.filter(isActiveCryptoPledgeGroup_).forEach(g => {
+    activePledgedCryptoAssets += g.collateralValue;
+    totalCryptoDebt += g.loanAmount;
+  });
+
+  const activeCryptoLTV = activePledgedCryptoAssets > 0 ? (totalCryptoDebt / activePledgedCryptoAssets) : 0;
+  market.btcRegime = getBtcRegime_(market.btcMM, market.btcDrawdownFromATH, activeCryptoLTV, survivalRunway);
+  const btcAllocationTargets = getBtcAllocationTargets_(market.btcRegime);
 
 
-  // Phase 4: 動態資產配置目標注入與 Layer 4 自動化 (v24.7)
-  // [NEW v24.10] MM-Driven Auto Allocation
+  // Phase 5: 動態資產配置目標注入與 Layer 4 自動化
   const knownTickers = new Set();
   const assetGroups = Config.ASSET_GROUPS.map(group => {
     group.tickers.forEach(t => knownTickers.add(t));
@@ -608,24 +924,9 @@ function buildContext() {
     if (indicatorsRaw[key] !== undefined && !isNaN(indicatorsRaw[key])) {
       dynamicTarget = indicatorsRaw[key];
     }
-    // Priority 2: Auto-calculate from BTC_MM (if available and no manual override)
-    else if (indicatorsRaw["BTC_MM"] !== undefined && !isNaN(indicatorsRaw["BTC_MM"])) {
-      const mm = indicatorsRaw["BTC_MM"];
-      // MM-based allocation strategy (aligned with SAR)
-      if (group.id === "L1") {
-        if (mm < 0.8) dynamicTarget = 0.75;       // Extreme accumulation
-        else if (mm < 1.0) dynamicTarget = 0.70;  // Strong accumulation
-        else if (mm < 1.5) dynamicTarget = 0.65;  // Normal accumulation
-        else if (mm < 2.0) dynamicTarget = 0.60;  // Neutral
-        else dynamicTarget = 0.50;                // De-leverage zone
-      } else if (group.id === "L2") {
-        if (mm < 1.5) dynamicTarget = 0.20;       // Minimal defense
-        else if (mm < 2.0) dynamicTarget = 0.30;  // Normal defense
-        else dynamicTarget = 0.30;                // Maintain defense
-      } else if (group.id === "L3") {
-        if (mm < 2.0) dynamicTarget = 0.10;       // Minimal cash
-        else dynamicTarget = 0.20;                // Increase cash buffer
-      }
+    // Priority 2: Auto-calculate from BTC dual-factor regime
+    else if (btcAllocationTargets && btcAllocationTargets[group.id] !== undefined) {
+      dynamicTarget = btcAllocationTargets[group.id];
     }
 
     return { ...group, target: dynamicTarget, value: calculateGroupValue(portfolioSummary, group) };
@@ -650,10 +951,7 @@ function buildContext() {
     isMisc: true
   });
 
-  // Phase 5: 自動質押引擎
-  const pledgeGroups = calculateAutoPledgeRatios(rawPortfolio, indicatorsRaw);
-
-  // Phase 5: 再平衡目標
+  // Phase 6: 再平衡目標
   const targets = enrichRebalanceTargets_(
     getRebalanceTargets(assetGroups, totalGrossAssets, market),
     portfolioSummary,
@@ -669,16 +967,6 @@ function buildContext() {
     survivalRunway: survivalRunway,
     ltv: totalGrossAssets > 0 ? (totalGrossAssets - netEntityValue) / totalGrossAssets : 0
   };
-
-  // [NEW v24.11] Refined LTV Logic: Separate Active vs Global
-  let activePledgedCryptoAssets = 0;
-  let totalCryptoDebt = 0;
-  pledgeGroups.filter(isActiveCryptoPledgeGroup_).forEach(g => {
-    activePledgedCryptoAssets += g.collateralValue;
-    totalCryptoDebt += g.loanAmount;
-  });
-
-  const activeCryptoLTV = activePledgedCryptoAssets > 0 ? (totalCryptoDebt / activePledgedCryptoAssets) : 0;
 
   // Also keep Global Crypto LTV for macro view
   const l1Value = assetGroups.find(g => g.id === "L1")?.value || 0;
@@ -827,6 +1115,10 @@ function getRebalanceTargets(portfolio, assets, market) {
     if (Math.abs(state.weightGap) < threshold) return;
 
     const action = state.deltaValue > 0 ? 'ADD' : 'TRIM';
+    if (action === 'ADD' && group.id === 'L1' && shouldSuppressAggressiveBtcBuying_(market && market.btcRegime)) {
+      return;
+    }
+
     targets.push({
       id: group.id,
       name: group.name,
@@ -1234,24 +1526,22 @@ function getPortfolioData(sheetName) {
 
 function generatePortfolioSnapshot(context) {
   const { market, pledgeGroups, netEntityValue, indicators, totalGrossAssets, portfolioSummary } = context;
+  const btcRegime = market.btcRegime;
 
   let s = "\n[I] 市場情報 (MARKET INTEL)\n";
   s += "- BTC 現貨價格: $" + market.btcPrice.toLocaleString() + " USD\n";
-  if (market.sapBaseATH > 0) {
-    const drop = ((market.btcPrice - market.sapBaseATH) / market.sapBaseATH * 100).toFixed(1);
-    s += "- 距離 ATH (" + market.sapBaseATH + "): " + drop + "%\n";
+  if (market.sapBaseATH > 0 && market.btcDrawdownFromATH !== null) {
+    s += "- 距離 ATH (" + market.sapBaseATH + "): " + formatPercent_(market.btcDrawdownFromATH, 1) + "\n";
+  } else {
+    s += "- 距離 ATH: N/A（缺少 SAP_Base_ATH）\n";
   }
 
-  // [NEW v24.10] Mayer Multiple Display
   if (market.btcMM) {
     s += "- Mayer Multiple: " + market.btcMM.toFixed(2) + "\n";
-    let phase = "";
-    if (market.btcMM < 0.8) phase = "🟢 極度低估 (累積)";
-    else if (market.btcMM < 1.0) phase = "🟢 強力累積區";
-    else if (market.btcMM < 1.5) phase = "🟡 正常累積區";
-    else if (market.btcMM < 2.0) phase = "🟡 中性區";
-    else phase = "🔴 去槓桿區";
-    s += "- 週期定位: " + phase + "\n";
+  }
+  if (btcRegime) {
+    s += "- BTC Regime: " + btcRegime.regime + "\n";
+    s += "- 週期定位: " + btcRegime.phaseLabel + "（" + btcRegime.reason + "）\n";
   }
 
   // [NEW v24.13] TW Weighted MM Display
@@ -1273,23 +1563,25 @@ function generatePortfolioSnapshot(context) {
   s += "- 總負債: " + Math.round(totalGrossAssets - netEntityValue).toLocaleString() + " TWD\n";
   s += "- 總 LTV: " + (indicators.ltv * 100).toFixed(1) + "%\n";
 
-  // [NEW v24.10] Target LTV Advice (Crypto Only)
-  if (market.btcMM) {
-    let targetLTV = 0;
-    if (market.btcMM < 0.8) targetLTV = 40;
-    else if (market.btcMM < 1.0) targetLTV = 30;
-    else if (market.btcMM < 1.5) targetLTV = 25;
-    else if (market.btcMM < 2.0) targetLTV = 20;
-    else targetLTV = 0;
-
-    s += "- 目標 LTV (Crypto) (建議): " + targetLTV + "%\n";
+  if (btcRegime) {
+    s += "- 目標 LTV (Crypto): " + formatBtcLtvRange_(btcRegime) + "\n";
     s += "- 活性 LTV (Active): " + (indicators.cryptoLTV * 100).toFixed(1) + "%\n";
     s += "- 總體 LTV (Global): " + (indicators.globalCryptoLTV * 100).toFixed(1) + "%\n";
+    s += "- Restock Mode: " + btcRegime.restockMode + "\n";
 
-    if (indicators.cryptoLTV * 100 > targetLTV) {
-      s += "  ⚠️ 活性 LTV 超標，建議於質押節點去槓桿\n";
+    if (btcRegime.guardrailMessage) {
+      s += "  > " + btcRegime.guardrailMessage + "\n";
+      s += "  > " + btcRegime.guardrailAction + "\n";
+    } else if (btcRegime.targetLtvMax === 0 && indicators.cryptoLTV > 0) {
+      s += "  > 此 regime 的目標 LTV 為 0%，優先降槓桿而非新增曝險。\n";
+    } else if (btcRegime.targetLtvMax > 0 && indicators.cryptoLTV > btcRegime.targetLtvMax) {
+      s += "  > Active LTV 高於 regime 目標區間上緣，新增借款前需先降槓桿。\n";
+    } else if (btcRegime.restockAllowed) {
+      s += "  > 質押風險位於允許區間，可依 regime 執行分批 restock。\n";
+    } else if (btcRegime.restockMode === "OFF") {
+      s += "  > 停止戰術 restock，優先維持流動性或降低槓桿。\n";
     } else {
-      s += "  ✅ 質押風險平衡中\n";
+      s += "  > 只維持基本 DCA 或手動檢查，不執行戰術 restock。\n";
     }
   }
 
