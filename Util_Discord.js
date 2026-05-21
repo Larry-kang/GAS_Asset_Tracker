@@ -34,6 +34,8 @@ const Discord = {
         // 1. Try Discord
         if (webhookUrl) {
             discordSuccess = this._sendToDiscord(webhookUrl, title, description, level);
+        } else {
+            console.warn("Discord webhook is not configured.");
         }
 
         // 2. Fallback to Email if Discord failed or not set, AND level is critical enough
@@ -120,3 +122,30 @@ const Discord = {
         }
     }
 };
+
+function sendDiscordAlert_(title, description, level) {
+    return Discord.sendAlert(title, description, level || 'INFO');
+}
+
+function testDiscordNotification() {
+    const ui = SpreadsheetApp.getUi();
+    const webhookUrl = Settings.get('DISCORD_WEBHOOK_URL');
+    if (!webhookUrl) {
+        ui.alert('Discord 測試失敗', 'DISCORD_WEBHOOK_URL 尚未設定。請先執行「設定 Discord Webhook」。', ui.ButtonSet.OK);
+        return;
+    }
+
+    const ok = sendDiscordAlert_(
+        'SAP Discord 測試',
+        '這是一則測試訊息。若你看到這則訊息，代表 GAS 到 Discord Webhook 的通道正常。',
+        'INFO'
+    );
+
+    ui.alert(
+        ok ? 'Discord 測試成功' : 'Discord 測試失敗',
+        ok
+            ? 'Discord webhook 已成功回應。'
+            : 'Discord webhook 未成功回應。請查看 Apps Script 執行記錄中的 Discord JSON Error / Webhook Failed。',
+        ui.ButtonSet.OK
+    );
+}

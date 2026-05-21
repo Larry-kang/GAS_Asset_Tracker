@@ -53,24 +53,24 @@ const LogService = {
     warn: function (msg, ctx) {
         this.log("WARNING", msg, ctx);
         // [Discord] Send Warning
-        if (typeof Discord !== 'undefined') {
-            Discord.sendAlert("Warning: " + ctx, msg, "WARNING");
+        if (typeof sendDiscordAlert_ === 'function') {
+            sendDiscordAlert_("Warning: " + ctx, msg, "WARNING");
         }
     },
 
     error: function (msg, ctx) {
         this.log("ERROR", msg, ctx);
         // [Discord] Send Error (Critical)
-        if (typeof Discord !== 'undefined') {
-            Discord.sendAlert("Error: " + ctx, msg, "ERROR");
+        if (typeof sendDiscordAlert_ === 'function') {
+            sendDiscordAlert_("Error: " + ctx, msg, "ERROR");
         }
     },
 
     strategic: function (msg, ctx) {
         this.log("STRATEGIC", msg, ctx);
         // [Discord] Send Strategic Signal (High Priority)
-        if (typeof Discord !== 'undefined') {
-            Discord.sendAlert("Strategic Signal: " + ctx, msg, "STRATEGIC");
+        if (typeof sendDiscordAlert_ === 'function') {
+            sendDiscordAlert_("Strategic Signal: " + ctx, msg, "STRATEGIC");
         }
     }
 };

@@ -11,7 +11,8 @@ function onOpen() {
   menu.addItem('執行即時戰略報告', 'showStrategicReportUI')
     .addItem('一鍵全系統同步', 'runAutomationMaster')
     .addSeparator() // 分隔線
-    .addItem('設定 Discord Webhook', 'uiSetupDiscord');
+    .addItem('設定 Discord Webhook', 'uiSetupDiscord')
+    .addItem('測試 Discord 通知', 'testDiscordNotification');
 
   menu.addSeparator();
 

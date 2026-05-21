@@ -1884,7 +1884,7 @@ function broadcastReport_(context, alerts = []) {
   }
 
   // 2. Discord Channel (Sync)
-  if (typeof Discord !== 'undefined') {
+  if (typeof sendDiscordAlert_ === 'function') {
     const title = hasAlerts ? "🚨 SAP 戰略行動報告" : "✅ SAP 每日狀態報告";
     const color = hasAlerts ? "WARNING" : "SUCCESS";
 
@@ -1899,9 +1899,9 @@ function broadcastReport_(context, alerts = []) {
     // Add Snapshot in Code Block for monospace alignment
     description += "```yaml\n" + snapshot.replace(/`/g, '') + "\n```";
 
-    const discordSent = Discord.sendAlert(title, description, color);
+    const discordSent = sendDiscordAlert_(title, description, color);
     console.log(`[Broadcast] Discord sent: ${discordSent}`);
   } else {
-    console.warn("[Broadcast] Discord utility is not loaded.");
+    console.warn("[Broadcast] Discord sender function is not loaded.");
   }
 }
