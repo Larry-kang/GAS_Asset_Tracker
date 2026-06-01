@@ -55,4 +55,26 @@ jobs:
           fi
 
       - name: Deploy to GAS
-        run: clasp push --force
+        env:
+          GAS_WEBAPP_DEPLOYMENT_ID: ${{ secrets.GAS_WEBAPP_DEPLOYMENT_ID }}
+        run: |
+          if [ -z "$GAS_WEBAPP_DEPLOYMENT_ID" ]; then
+            echo "Error: GAS_WEBAPP_DEPLOYMENT_ID secret is not set"
+            exit 1
+          fi
+
+          clasp push --force
+
+          VERSION_OUTPUT="$(clasp version "auto deploy ${GITHUB_SHA}")"
+          echo "$VERSION_OUTPUT"
+
+          VERSION_NUMBER="$(echo "$VERSION_OUTPUT" | sed -nE 's/.*version[[:space:]]+([0-9]+).*/\1/p' | tail -n 1)"
+          if [ -z "$VERSION_NUMBER" ]; then
+            echo "Error: failed to parse Apps Script version number"
+            exit 1
+          fi
+
+          clasp deploy \
+            --deploymentId "$GAS_WEBAPP_DEPLOYMENT_ID" \
+            --versionNumber "$VERSION_NUMBER" \
+            --description "auto deploy ${GITHUB_SHA}"
