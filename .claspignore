@@ -7,6 +7,7 @@ docs/**
 .github/**
 node_modules/**
 tests/**
+!tests/inventory_export.test.js
 setup_cicd.ps1
 start.ps1
 update.ps1
