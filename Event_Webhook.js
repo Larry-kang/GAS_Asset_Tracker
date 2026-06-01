@@ -186,7 +186,15 @@ function handleTriggerReport(data) {
 function handleGetInventory(data) {
   // [ReadOnly] Export calculated context for SAR simulation
   if (typeof buildContext === 'function') {
-    const context = buildContext();
+    const context = typeof buildFreshContext === 'function' ? buildFreshContext() : buildContext();
+    const exportBundle = typeof getInventoryExportBundle_ === 'function'
+      ? getInventoryExportBundle_()
+      : null;
+
+    if (exportBundle && exportBundle.available) {
+      context.inventoryExport = exportBundle;
+    }
+
     return ContentService.createTextOutput(JSON.stringify({
       status: "success",
       source: "GAS_Asset_Tracker",

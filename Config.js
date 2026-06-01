@@ -25,7 +25,9 @@ const Config = {
     SHEET_NAMES: {
         BALANCE_SHEET: "Balance Sheet",
         INDICATORS: "Key Market Indicators",
-        DASHBOARD: "Dashboard"
+        DASHBOARD: "Dashboard",
+        INVENTORY_EXPORT_SUMMARY: "API_Summary_Export",
+        INVENTORY_EXPORT_POSITIONS: "API_Position_Export"
     },
 
     // Strategic Thresholds
