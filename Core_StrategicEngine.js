@@ -85,22 +85,22 @@ function applyBtcRestockGate_(regime, cryptoLTV, survivalRunway) {
 
   if (!isAccumulationMode) return regime;
 
-  if (ltv >= 0.35) {
+  if (ltv >= 0.50) {
     return Object.assign({}, regime, {
       restockAllowed: false,
       restockMode: "OFF",
       severity: "WARN",
-      guardrailMessage: "Active Crypto LTV 已超過 35%，停止新增借款。",
+      guardrailMessage: "Active Crypto LTV 已達 50%，停止新增借款並關閉 Stretch。",
       guardrailAction: "停止新增借款，優先還款或只保留必要現金流 DCA。"
     });
   }
 
-  if (ltv >= 0.325) {
+  if (ltv >= 0.45) {
     return Object.assign({}, regime, {
       restockAllowed: false,
       restockMode: "DCA_ONLY",
       severity: "WARN",
-      guardrailMessage: "Active Crypto LTV 已超過 32.5%，暫停借款買入。",
+      guardrailMessage: "Active Crypto LTV 已達 45%，只保留 Active cap 以下的保守操作。",
       guardrailAction: "只允許用現金流 DCA，不新增質押借款。"
     });
   }
@@ -123,7 +123,7 @@ function getBtcRegime_(btcMM, btcDrawdown, cryptoLTV, survivalRunway) {
   const drawdown = toFiniteNumber_(btcDrawdown);
   const ltv = Math.max(toFiniteNumber_(cryptoLTV) || 0, 0);
 
-  if (ltv >= 0.50) {
+  if (ltv >= 0.60) {
     return createBtcRegime_({
       regime: "HARD_CAP_BREACH",
       phaseLabel: "Crypto LTV 硬上限突破",
@@ -133,13 +133,13 @@ function getBtcRegime_(btcMM, btcDrawdown, cryptoLTV, survivalRunway) {
       targetLtvMax: 0,
       allocationBias: "DEBT_REDUCTION",
       severity: "CRITICAL",
-      reason: "Crypto LTV >= 50%",
-      guardrailMessage: "Active Crypto LTV 已超過 50% 硬紅線。",
+      reason: "Crypto LTV >= 60%",
+      guardrailMessage: "Active Crypto LTV 已超過 60% 內部硬紅線。",
       guardrailAction: "強制去槓桿，停止所有買入。"
     });
   }
 
-  if (ltv >= 0.45) {
+  if (ltv >= 0.55) {
     return createBtcRegime_({
       regime: "DEFCON_1",
       phaseLabel: "DEFCON 1 去槓桿",
@@ -149,9 +149,26 @@ function getBtcRegime_(btcMM, btcDrawdown, cryptoLTV, survivalRunway) {
       targetLtvMax: 0,
       allocationBias: "DEBT_REDUCTION",
       severity: "CRITICAL",
-      reason: "Crypto LTV >= 45%",
-      guardrailMessage: "Active Crypto LTV 已超過 45% 警戒線。",
+      reason: "Crypto LTV >= 55%",
+      guardrailMessage: "Active Crypto LTV 已超過 55% 戰術極限。",
       guardrailAction: "停止所有買入，優先還款降槓桿。"
+    });
+  }
+
+  if (ltv >= 0.50) {
+    return createBtcRegime_({
+      regime: "STRETCH_LOCK",
+      phaseLabel: "Stretch 關閉 / 停止新增借款",
+      action: "NO_NEW_BORROWING",
+      restockMode: "OFF",
+      restockAllowed: false,
+      targetLtvMin: 0.45,
+      targetLtvMax: 0.50,
+      allocationBias: "DEBT_STABILIZE",
+      severity: "WARN",
+      reason: "Crypto LTV >= 50%",
+      guardrailMessage: "Active Crypto LTV 已超過 50%，禁止再往 Stretch 加碼。",
+      guardrailAction: "停止新增借款，僅允許現金流 DCA 或優先降槓桿。"
     });
   }
 
@@ -197,45 +214,45 @@ function getBtcRegime_(btcMM, btcDrawdown, cryptoLTV, survivalRunway) {
     });
   }
 
-  if (mm < 0.80 || (drawdown !== null && drawdown <= -0.50)) {
+  if (mm < 0.60 || (drawdown !== null && drawdown <= -0.55)) {
     return applyBtcRestockGate_(createBtcRegime_({
       regime: "PANIC_ACCUMULATE",
       phaseLabel: "恐慌低點累積區",
       action: "PANIC_RESTOCK",
       restockMode: "PANIC",
-      targetLtvMin: 0.30,
-      targetLtvMax: 0.40,
+      targetLtvMin: 0.50,
+      targetLtvMax: 0.55,
       allocationBias: "MAX_L1_ACCUMULATE",
       severity: "INFO",
-      reason: mm < 0.80 ? "BTC_MM < 0.80" : "Drawdown <= -50%"
+      reason: mm < 0.60 ? "BTC_MM < 0.60" : "Drawdown <= -55%"
+    }), ltv, survivalRunway);
+  }
+
+  if (mm < 0.75) {
+    return applyBtcRestockGate_(createBtcRegime_({
+      regime: "DEEP_VALUE",
+      phaseLabel: "深度折價主操作區",
+      action: "ACTIVE_RESTOCK",
+      restockMode: "NORMAL",
+      targetLtvMin: 0.45,
+      targetLtvMax: 0.50,
+      allocationBias: "MAX_L1_ACCUMULATE",
+      severity: "INFO",
+      reason: "0.60 <= BTC_MM < 0.75"
     }), ltv, survivalRunway);
   }
 
   if (mm < 1.00) {
     return applyBtcRestockGate_(createBtcRegime_({
       regime: "ACCUMULATE",
-      phaseLabel: "強力累積區",
+      phaseLabel: "低位積累區",
       action: "NORMAL_RESTOCK",
       restockMode: "NORMAL",
-      targetLtvMin: 0.25,
-      targetLtvMax: 0.30,
+      targetLtvMin: 0.40,
+      targetLtvMax: 0.45,
       allocationBias: "L1_ACCUMULATE",
       severity: "INFO",
-      reason: "BTC_MM < 1.00"
-    }), ltv, survivalRunway);
-  }
-
-  if (mm < 1.15 && drawdown !== null && drawdown <= -0.30) {
-    return applyBtcRestockGate_(createBtcRegime_({
-      regime: "EXTENDED_ACCUMULATE",
-      phaseLabel: "熊市均線下修延長累積區",
-      action: "REDUCED_RESTOCK",
-      restockMode: "EXTENDED",
-      targetLtvMin: 0.20,
-      targetLtvMax: 0.30,
-      allocationBias: "EXTENDED_L1_ACCUMULATE",
-      severity: "INFO",
-      reason: "BTC_MM < 1.15 and Drawdown <= -30%"
+      reason: "0.75 <= BTC_MM < 1.00"
     }), ltv, survivalRunway);
   }
 
@@ -245,8 +262,8 @@ function getBtcRegime_(btcMM, btcDrawdown, cryptoLTV, survivalRunway) {
       phaseLabel: "中性區 / 固定 DCA",
       action: "DCA_ONLY",
       restockMode: "DCA_ONLY",
-      targetLtvMin: 0.20,
-      targetLtvMax: 0.25,
+      targetLtvMin: 0.30,
+      targetLtvMax: 0.35,
       allocationBias: "NEUTRAL",
       severity: "INFO",
       reason: "BTC_MM between 1.00 and 1.50 without deep drawdown"
@@ -270,8 +287,8 @@ function getBtcAllocationTargets_(btcRegime) {
   const regime = btcRegime && btcRegime.regime;
   const targets = {
     PANIC_ACCUMULATE: { L1: 0.75, L2: 0.15, L3: 0.10 },
+    DEEP_VALUE: { L1: 0.72, L2: 0.18, L3: 0.10 },
     ACCUMULATE: { L1: 0.70, L2: 0.20, L3: 0.10 },
-    EXTENDED_ACCUMULATE: { L1: 0.68, L2: 0.22, L3: 0.10 },
     NEUTRAL: { L1: 0.65, L2: 0.25, L3: 0.10 },
     DE_RISK: { L1: 0.60, L2: 0.30, L3: 0.10 },
     BUBBLE: { L1: 0.50, L2: 0.30, L3: 0.20 }
@@ -369,7 +386,7 @@ const RULES = [
     name: "Crypto LTV Guardrail",
     phase: "All",
     condition: function (context) {
-      return context.indicators && context.indicators.cryptoLTV >= 0.325;
+      return context.indicators && context.indicators.cryptoLTV >= 0.45;
     },
     getAction: function (context) {
       const ltv = context.indicators.cryptoLTV;
@@ -377,15 +394,18 @@ const RULES = [
       let level = "[注意] Crypto LTV Guardrail";
       let action = "只允許用現金流 DCA，不新增質押借款。";
 
-      if (ltv >= 0.50) {
+      if (ltv >= 0.60) {
         level = "[嚴重] Crypto LTV 硬上限突破";
         action = "強制去槓桿，停止所有買入。";
-      } else if (ltv >= 0.45) {
+      } else if (ltv >= 0.55) {
         level = "[嚴重] DEFCON 1 Crypto LTV";
         action = "停止所有買入，優先還款降槓桿。";
-      } else if (ltv >= 0.35) {
-        level = "[警告] Crypto LTV 停止借款區";
+      } else if (ltv >= 0.50) {
+        level = "[警告] Crypto LTV Stretch 關閉";
         action = "停止新增借款，優先還款或只保留必要現金流 DCA。";
+      } else if (ltv >= 0.45) {
+        level = "[注意] Crypto LTV Active 上緣";
+        action = "暫停提高 OKX 槓桿，只保留 Active cap 以內操作。";
       }
 
       return {
