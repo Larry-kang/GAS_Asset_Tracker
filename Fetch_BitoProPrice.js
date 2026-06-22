@@ -4,16 +4,20 @@
 // =================================================================
 
 const BITOPRO_PUBLIC_API_BASE_URL = "https://api.bitopro.com/v3";
+const BITOPRO_TICKER_FAILURE_BACKOFF_SECONDS = 180;
 
 function fetchBitoProTickerLastPrice_(pair, bypassCache) {
   const normalizedPair = String(pair || "").trim().toLowerCase();
   if (!normalizedPair) return null;
 
   const cacheKey = `PRICE_BITOPRO_TICKER_${normalizedPair.toUpperCase()}`;
+  const failureCacheKey = `PRICE_BITOPRO_TICKER_FAIL_${normalizedPair.toUpperCase()}`;
   if (!bypassCache) {
     const cached = ScriptCache.get(cacheKey);
     const cachedPrice = parseBitoProPositiveNumber_(cached);
     if (cachedPrice !== null) return cachedPrice;
+
+    if (ScriptCache.get(failureCacheKey)) return null;
   }
 
   try {
@@ -23,15 +27,17 @@ function fetchBitoProTickerLastPrice_(pair, bypassCache) {
     const body = response.getContentText();
 
     if (code !== 200) {
+      ScriptCache.put(failureCacheKey, "1", BITOPRO_TICKER_FAILURE_BACKOFF_SECONDS);
       logBitoProPrice_("warn", `BitoPro ticker ${normalizedPair} failed: HTTP ${code}`);
       return null;
     }
 
     const json = JSON.parse(body);
-    const payload = json && json.data ? json.data : json;
+    const payload = extractBitoProTickerPayload_(json, normalizedPair);
     const price = parseBitoProPositiveNumber_(payload && (payload.lastPrice || payload.last || payload.close));
 
     if (price === null) {
+      ScriptCache.put(failureCacheKey, "1", BITOPRO_TICKER_FAILURE_BACKOFF_SECONDS);
       logBitoProPrice_("warn", `BitoPro ticker ${normalizedPair} missing valid lastPrice.`);
       return null;
     }
@@ -39,9 +45,19 @@ function fetchBitoProTickerLastPrice_(pair, bypassCache) {
     ScriptCache.put(cacheKey, price, 60);
     return price;
   } catch (e) {
+    ScriptCache.put(failureCacheKey, "1", BITOPRO_TICKER_FAILURE_BACKOFF_SECONDS);
     logBitoProPrice_("warn", `BitoPro ticker ${normalizedPair} exception: ${e.message || e}`);
     return null;
   }
+}
+
+function extractBitoProTickerPayload_(json, normalizedPair) {
+  const payload = json && json.data ? json.data : json;
+  if (Array.isArray(payload)) {
+    return payload.find(item => String(item && item.pair || "").trim().toLowerCase() === normalizedPair) || payload[0] || null;
+  }
+
+  return payload || null;
 }
 
 function fetchBitoProBitoPrice_(currency, bypassCache) {

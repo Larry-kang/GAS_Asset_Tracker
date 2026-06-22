@@ -533,6 +533,12 @@ function fetchCryptoPrice(ticker, currency = "USD", bypassCache = false) {
 
   const cacheKey = `PRICE_CRYPTO_${normalizedTicker}_${normalizedCurrency}`;
 
+  // 1. Check Cache (unless bypass is requested)
+  if (!bypassCache) {
+    const cached = ScriptCache.get(cacheKey);
+    if (isPositivePrice_(cached)) return parseFloat(cached);
+  }
+
   if (normalizedTicker === "BITO" && typeof fetchBitoProBitoPrice_ === "function") {
     const bitoPrice = fetchBitoProBitoPrice_(normalizedCurrency, bypassCache);
     if (isPositivePrice_(bitoPrice)) {
@@ -540,12 +546,9 @@ function fetchCryptoPrice(ticker, currency = "USD", bypassCache = false) {
       Logger.log(`  - [Source 0: BitoPro] OK for ${normalizedTicker}: ${bitoPrice}`);
       return bitoPrice;
     }
-  }
 
-  // 1. Check Cache (unless bypass is requested)
-  if (!bypassCache) {
-    const cached = ScriptCache.get(cacheKey);
-    if (isPositivePrice_(cached)) return parseFloat(cached);
+    Logger.log(`  - [Source 0: BitoPro] UNAVAILABLE for ${normalizedTicker}; skipping generic same-symbol fallbacks.`);
+    return null;
   }
 
   let price = null;
