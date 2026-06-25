@@ -13,6 +13,77 @@
 // =================================================================================
 const SOURCE_SHEET_NAME_V2 = "圖表";
 const DESTINATION_SHEET_NAME_V2 = "每日資產價值變化";
+const ASSET_ALLOCATION_SHEET_NAME_V2 = "資產配置";
+const STOCK_PLEDGE_SHEET_NAME_V2 = "質押紀錄表";
+
+function toSnapshotNumber_(value) {
+  const num = Number(value);
+  return isFinite(num) ? num : 0;
+}
+
+function buildSnapshotSummaryFromAllocationRows_(allocationRows, stockPledgeInterestAdjustment) {
+  const summary = {
+    cashValue: 0,
+    stockValue: 0,
+    cryptoValue: 0,
+    cryptoliabilityValue: 0,
+    liabilityValue: 0,
+    netWorthValue: 0,
+    totalAssetValue: 0
+  };
+  const stockPledgeOffset = toSnapshotNumber_(stockPledgeInterestAdjustment);
+
+  (allocationRows || []).forEach((row) => {
+    const assetType = String(row[1] || '').trim();
+    const ticker = String(row[2] || '').trim().toUpperCase();
+    const currentValue = toSnapshotNumber_(row[8]);
+
+    if (!assetType && !ticker) return;
+
+    if (assetType === '現金') {
+      summary.cashValue += currentValue;
+      return;
+    }
+
+    if (assetType === '股票' && ticker !== 'IBIT') {
+      summary.stockValue += currentValue;
+      return;
+    }
+
+    if (assetType === '數位幣' || assetType === '數位穩定幣' || ticker === 'IBIT') {
+      if (currentValue >= 0) summary.cryptoValue += currentValue;
+      else summary.cryptoliabilityValue += currentValue;
+      return;
+    }
+
+    if (assetType === '貸款' || assetType === '質押' || assetType === '信用卡費') {
+      summary.liabilityValue += currentValue;
+    }
+  });
+
+  summary.liabilityValue -= stockPledgeOffset;
+  summary.totalAssetValue = summary.cashValue + summary.stockValue + summary.cryptoValue;
+  summary.netWorthValue =
+    summary.totalAssetValue +
+    summary.cryptoliabilityValue +
+    summary.liabilityValue;
+
+  return summary;
+}
+
+function readSnapshotSummaryFromSheets_(ss) {
+  const assetAllocationSheet = ss.getSheetByName(ASSET_ALLOCATION_SHEET_NAME_V2);
+  if (!assetAllocationSheet) {
+    throw new Error(`找不到名為 "${ASSET_ALLOCATION_SHEET_NAME_V2}" 的分頁。`);
+  }
+
+  const stockPledgeSheet = ss.getSheetByName(STOCK_PLEDGE_SHEET_NAME_V2);
+  const allocationValues = assetAllocationSheet.getDataRange().getValues();
+  const allocationRows = allocationValues.length > 3 ? allocationValues.slice(3) : [];
+  const stockPledgeInterestAdjustment = stockPledgeSheet ? stockPledgeSheet.getRange("E2").getValue() : 0;
+
+  return buildSnapshotSummaryFromAllocationRows_(allocationRows, stockPledgeInterestAdjustment);
+}
 
 // =================================================================================
 // --- 2. 主執行函數 (Main Execution Function) ---
@@ -30,34 +101,20 @@ function autoRecordDailyValues(context) {
 
     let cashValue, stockValue, cryptoValue, cryptoliabilityValue, liabilityValue, netWorthValue, totalAssetValue;
 
-    if (context && context.portfolioSummary) {
-      // [Fast Path] 直接從計算上下文讀取 (更準確，不依賴 UI)
-      const pSummary = context.portfolioSummary;
+    try {
+      const sheetSummary = readSnapshotSummaryFromSheets_(ss);
+      cashValue = sheetSummary.cashValue;
+      stockValue = sheetSummary.stockValue;
+      cryptoValue = sheetSummary.cryptoValue;
+      cryptoliabilityValue = sheetSummary.cryptoliabilityValue;
+      liabilityValue = sheetSummary.liabilityValue;
+      netWorthValue = sheetSummary.netWorthValue;
+      totalAssetValue = sheetSummary.totalAssetValue;
 
-      // 1. 現金與流動性
-      cashValue = (pSummary["CASH_TWD"] || 0) + (pSummary["USDT"] || 0) + (pSummary["USDC"] || 0) + (pSummary["BOXX"] || 0);
-
-      // 2. 股票資產 (L2)
-      stockValue = context.assetGroups.find(g => g.id === "L2")?.value || 0;
-
-      // 3. 數位資產 (BTC + Others)
-      // 使用 L1 (Reserve) + L4 (Misc) 作為數位資產總額
-      const l1Value = context.assetGroups.find(g => g.id === "L1")?.value || 0;
-      const l4Value = context.assetGroups.find(g => g.id === "L4")?.value || 0;
-      cryptoValue = l1Value + l4Value;
-
-      // 4. 指標數據
-      totalAssetValue = context.totalGrossAssets;
-      netWorthValue = context.netEntityValue;
-      liabilityValue = totalAssetValue - netWorthValue;
-      cryptoliabilityValue = 0; // 已整合在淨值計算中
-
-      LogService.info(`Snapshot captured via Fast Path (Memory Context)`, 'Snapshot:Mode');
-
-    } else {
-      // [Slow Path] 讀取 Sheet (Fallback)
+      LogService.info(`Snapshot captured via Asset Allocation parity mode`, 'Snapshot:Mode');
+    } catch (sheetError) {
       const sourceSheet = ss.getSheetByName(SOURCE_SHEET_NAME_V2);
-      if (!sourceSheet) throw new Error(`找不到名為 "${SOURCE_SHEET_NAME_V2}" 的分頁(且無自動化數據輸入)。`);
+      if (!sourceSheet) throw new Error(`找不到名為 "${SOURCE_SHEET_NAME_V2}" 的分頁，且資產配置口徑重算失敗: ${sheetError.message}`);
 
       cashValue = sourceSheet.getRange("B2").getValue();
       stockValue = sourceSheet.getRange("B3").getValue();
@@ -67,7 +124,7 @@ function autoRecordDailyValues(context) {
       netWorthValue = sourceSheet.getRange("B7").getValue();
       totalAssetValue = sourceSheet.getRange("D19").getValue();
 
-      LogService.info(`Snapshot captured via Slow Path (UI Cells)`, 'Snapshot:Mode');
+      LogService.warn(`Asset Allocation parity mode failed, fallback to chart cells: ${sheetError.message}`, 'Snapshot:Mode');
     }
 
     // 步驟二：計算「增幅百分比」
