@@ -39,6 +39,9 @@ function doPost(e) {
       case 'get_quick_status':
         return handleQuickSummary(data);
 
+      case 'debug_okx_recurring':
+        return handleDebugOkxRecurring(data);
+
       default:
         console.warn(`[Webhook] Valid Action NOT FOUND. Payload: ${JSON.stringify(data)}`);
         return ContentService.createTextOutput(JSON.stringify({ status: "error", msg: "Unknown Action", received: data.action }));
@@ -232,4 +235,69 @@ function handleQuickSummary(data) {
     status: "success",
     data: summary
   }));
+}
+
+/**
+ * [ReadOnly Debug] 遠端取得 OKX recurring / BTC fills debug 結果
+ * 不寫入 Unified Assets，不觸發全系統同步，只回傳 debug JSON
+ */
+function handleDebugOkxRecurring(data) {
+  const logCtx = "Webhook:DebugOKXRecurring";
+  LogService.info("Webhook requested OKX recurring debug.", logCtx);
+
+  if (typeof Credentials !== 'object' || typeof fetchOkxRecurringBuyDebug_ !== 'function') {
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "error",
+      msg: "OKX debug dependencies missing"
+    }));
+  }
+
+  const creds = Credentials.get('OKX');
+  const { apiKey, apiSecret, apiPassphrase } = creds || {};
+  const baseUrl = 'https://www.okx.com';
+
+  if (!apiKey || !apiSecret || !apiPassphrase) {
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "error",
+      msg: "Missing OKX keys"
+    }));
+  }
+
+  const debugRes = fetchOkxRecurringBuyDebug_(baseUrl, apiKey, apiSecret, apiPassphrase);
+  if (!debugRes.success) {
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "error",
+      debugAction: "okx_recurring",
+      msg: debugRes.status || "Unknown Error",
+      timestamp: new Date().toISOString()
+    }));
+  }
+
+  let payload = {
+    status: "success",
+    debugAction: "okx_recurring",
+    method: "",
+    summary: {},
+    rawMessage: debugRes.message || "",
+    timestamp: new Date().toISOString()
+  };
+
+  const debugPayload = typeof getLastOkxRecurringDebugPayload_ === 'function'
+    ? getLastOkxRecurringDebugPayload_()
+    : null;
+
+  if (debugPayload) {
+    payload.method = debugPayload.method || "";
+    payload.summary = debugPayload.derivedSummary || {};
+    payload.preview = {
+      pendingCount: debugPayload.pendingCount,
+      subOrdersCount: debugPayload.subOrdersCount,
+      historyCount: debugPayload.historyCount,
+      buyCount: debugPayload.buyCount,
+      firstFill: debugPayload.firstFill || null,
+      firstPending: debugPayload.firstPending || null
+    };
+  }
+
+  return ContentService.createTextOutput(JSON.stringify(payload));
 }

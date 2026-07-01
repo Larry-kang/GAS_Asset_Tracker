@@ -3,6 +3,8 @@
 // --- Refactored to use SyncManager.updateUnifiedLedger
 // =======================================================
 
+var __okxRecurringDebugPayload = null;
+
 function getOkxBalance() {
   const MODULE_NAME = "Sync_Okx";
 
@@ -473,6 +475,7 @@ function fetchOkxRecurringBuyDebug_(baseUrl, apiKey, apiSecret, apiPassphrase) {
     derivedSummary: derivedSummary
   };
 
+  setLastOkxRecurringDebugPayload_(preview);
   SyncManager.log("INFO", `[OKX Recurring Debug] ${JSON.stringify(preview)}`, "Sync_Okx");
 
   return {
@@ -552,6 +555,7 @@ function fetchOkxSpotBtcFillDebug_(baseUrl, apiKey, apiSecret, apiPassphrase) {
     }
   };
 
+  setLastOkxRecurringDebugPayload_(preview);
   SyncManager.log("INFO", `[OKX Recurring Debug Fallback] ${JSON.stringify(preview)}`, "Sync_Okx");
 
   return {
@@ -698,6 +702,14 @@ function dedupeOkxRowsByBillId_(rows) {
 function formatOkxDebugNumber_(value) {
   if (!value || !isFinite(value)) return '0';
   return Number(value).toFixed(8);
+}
+
+function setLastOkxRecurringDebugPayload_(payload) {
+  __okxRecurringDebugPayload = payload || null;
+}
+
+function getLastOkxRecurringDebugPayload_() {
+  return __okxRecurringDebugPayload;
 }
 
 function buildOkxAccountMeta_(item) {
