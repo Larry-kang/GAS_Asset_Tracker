@@ -328,6 +328,17 @@ function ensureSheetExists_(ss, sheetName, headers) {
 function writeOkxDcaDebugRow_(payload, debugPayload) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) {
+      LogService.error('No active spreadsheet context for OKX_DCA_Debug write.', 'Webhook:DebugOKXRecurring');
+      return;
+    }
+
+    const sheet = ss.getSheetByName('OKX_DCA_Debug');
+    if (!sheet) {
+      LogService.error('Sheet "OKX_DCA_Debug" not found. Skipping debug snapshot write.', 'Webhook:DebugOKXRecurring');
+      return;
+    }
+
     const headers = [
       'timestamp',
       'method',
@@ -343,7 +354,14 @@ function writeOkxDcaDebugRow_(payload, debugPayload) {
       'lastFillTime',
       'rawMessage'
     ];
-    const sheet = ensureSheetExists_(ss, 'OKX_DCA_Debug', headers);
+    const headerRange = sheet.getRange(1, 1, 1, headers.length);
+    const currentHeaders = headerRange.getValues()[0];
+    const matches = headers.every((header, idx) => String(currentHeaders[idx] || '').trim() === header);
+    if (!matches) {
+      headerRange.setValues([headers]);
+      sheet.setFrozenRows(1);
+    }
+
     const summary = payload && payload.summary ? payload.summary : {};
     const preview = payload && payload.preview ? payload.preview : {};
     const firstFill = preview.firstFill || {};
