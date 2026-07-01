@@ -327,9 +327,15 @@ function ensureSheetExists_(ss, sheetName, headers) {
 
 function writeOkxDcaDebugRow_(payload, debugPayload) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let ss = SpreadsheetApp.getActiveSpreadsheet();
     if (!ss) {
-      LogService.error('No active spreadsheet context for OKX_DCA_Debug write.', 'Webhook:DebugOKXRecurring');
+      const spreadsheetId = Settings.get('PRIMARY_SPREADSHEET_ID');
+      if (spreadsheetId) {
+        ss = SpreadsheetApp.openById(spreadsheetId);
+      }
+    }
+    if (!ss) {
+      LogService.error('No spreadsheet context for OKX_DCA_Debug write. Set PRIMARY_SPREADSHEET_ID or use a bound execution context.', 'Webhook:DebugOKXRecurring');
       return;
     }
 
