@@ -565,6 +565,64 @@ function fetchOkxSpotBtcFillDebug_(baseUrl, apiKey, apiSecret, apiPassphrase) {
   };
 }
 
+function fetchOkxSpotBtcFillIncrementalDebug_(baseUrl, apiKey, apiSecret, apiPassphrase, state) {
+  const normalizedState = state || {};
+  const hasCheckpoint = !!(normalizedState.lastFillBillId || normalizedState.lastFillTime);
+  const syncMode = hasCheckpoint ? 'incremental' : 'full_backfill';
+  const fetchRes = fetchAllOkxBtcBuyFills_(baseUrl, apiKey, apiSecret, apiPassphrase, normalizedState);
+
+  if (!fetchRes.success) {
+    return fetchRes;
+  }
+
+  const rows = fetchRes.rows || [];
+  const aggregate = aggregateOkxBtcBuyRows_(rows);
+  const priorTotalBought = parseOkxNumberMaybe_(normalizedState.totalBoughtBtc);
+  const priorTotalInvested = parseOkxNumberMaybe_(normalizedState.totalInvestedUsdt);
+  const priorBuyCount = parseInt(normalizedState.buyCount || 0, 10) || 0;
+
+  const cumulativeBought = hasCheckpoint ? (priorTotalBought + aggregate.totalBoughtBtc) : aggregate.totalBoughtBtc;
+  const cumulativeInvested = hasCheckpoint ? (priorTotalInvested + aggregate.totalInvestedUsdt) : aggregate.totalInvestedUsdt;
+  const cumulativeBuyCount = hasCheckpoint ? (priorBuyCount + aggregate.buyCount) : aggregate.buyCount;
+  const latestFill = selectLatestOkxFill_(rows);
+
+  const preview = {
+    method: 'spot_fills_incremental',
+    syncMode: syncMode,
+    hasCheckpoint: hasCheckpoint,
+    pageCount: fetchRes.pageCount || 0,
+    truncated: !!fetchRes.truncated,
+    buyCount: cumulativeBuyCount,
+    incrementalBuyCount: aggregate.buyCount,
+    incrementalBoughtBtc: aggregate.totalBoughtBtc,
+    incrementalInvestedUsdt: aggregate.totalInvestedUsdt,
+    firstFillKeys: rows[0] ? Object.keys(rows[0]) : [],
+    firstFill: toOkxDebugPreview_(rows[0]),
+    latestFill: toOkxDebugPreview_(latestFill),
+    derivedSummary: {
+      instId: 'BTC-USDT',
+      totalBoughtBtc: cumulativeBought || null,
+      totalInvestedUsdt: cumulativeInvested || null,
+      derivedAvgPrice: cumulativeBought > 0 ? (cumulativeInvested / cumulativeBought) : null,
+      lastFillBillId: latestFill ? String(latestFill.billId || '') : (normalizedState.lastFillBillId || ''),
+      lastFillTime: latestFill ? String(latestFill.fillTime || latestFill.ts || '') : (normalizedState.lastFillTime || ''),
+      syncMode: syncMode,
+      incrementalBuyCount: aggregate.buyCount,
+      incrementalBoughtBtc: aggregate.totalBoughtBtc,
+      incrementalInvestedUsdt: aggregate.totalInvestedUsdt
+    }
+  };
+
+  setLastOkxRecurringDebugPayload_(preview);
+  SyncManager.log("INFO", `[OKX Recurring Debug Incremental] ${JSON.stringify(preview)}`, "Sync_Okx");
+
+  return {
+    success: true,
+    rowCount: aggregate.buyCount,
+    message: `method=spot_fills_incremental; mode=${syncMode}; newRows=${aggregate.buyCount}; totalBoughtBtc=${formatOkxDebugNumber_(cumulativeBought)}; avgPx=${formatOkxDebugNumber_(cumulativeBought > 0 ? (cumulativeInvested / cumulativeBought) : 0)}`
+  };
+}
+
 function fetchOkxApi_(baseUrl, endpoint, params, apiKey, apiSecret, apiPassphrase) {
   const method = 'GET';
   const timestamp = new Date().toISOString();
@@ -702,6 +760,101 @@ function dedupeOkxRowsByBillId_(rows) {
 function formatOkxDebugNumber_(value) {
   if (!value || !isFinite(value)) return '0';
   return Number(value).toFixed(8);
+}
+
+function fetchAllOkxBtcBuyFills_(baseUrl, apiKey, apiSecret, apiPassphrase, state) {
+  const rows = [];
+  const seen = {};
+  const maxPages = 30;
+  let pageCount = 0;
+  let cursorAfter = '';
+  const beginTs = state && state.lastFillTime ? String(state.lastFillTime) : '';
+  const checkpointBillId = state && state.lastFillBillId ? String(state.lastFillBillId) : '';
+
+  while (pageCount < maxPages) {
+    const params = {
+      instType: 'SPOT',
+      instId: 'BTC-USDT',
+      subType: '1',
+      limit: 100
+    };
+    if (beginTs) params.begin = beginTs;
+    if (cursorAfter) params.after = cursorAfter;
+
+    const res = fetchOkxApi_(baseUrl, '/api/v5/trade/fills-history', params, apiKey, apiSecret, apiPassphrase);
+    if (res.code !== "0") {
+      return { success: false, status: `FillsHistory Code: ${res.code}, Msg: ${res.msg}` };
+    }
+
+    const pageRows = Array.isArray(res.data) ? res.data : [];
+    pageCount++;
+    if (!pageRows.length) break;
+
+    pageRows.forEach(row => {
+      const key = String(row.billId || row.tradeId || row.ts || '');
+      if (!key || seen[key]) return;
+      if (checkpointBillId && key === checkpointBillId) return;
+      seen[key] = true;
+      if (isOkxBtcSpotBuyFill_(row)) rows.push(row);
+    });
+
+    if (pageRows.length < 100) {
+      return { success: true, rows: rows, pageCount: pageCount, truncated: false };
+    }
+
+    const oldest = pageRows[pageRows.length - 1];
+    const nextAfter = oldest && oldest.billId ? String(oldest.billId) : '';
+    if (!nextAfter || nextAfter === cursorAfter) {
+      break;
+    }
+    cursorAfter = nextAfter;
+  }
+
+  return { success: true, rows: rows, pageCount: pageCount, truncated: pageCount >= maxPages };
+}
+
+function aggregateOkxBtcBuyRows_(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  let totalBoughtBtc = 0;
+  let totalInvestedUsdt = 0;
+
+  list.forEach(row => {
+    const btcQty = parseOkxNumberMaybe_(pickFirstDefinedOkxValue_(row, null, [
+      'fillSz',
+      'accFillSz',
+      'sz'
+    ]));
+    const fillPx = parseOkxNumberMaybe_(pickFirstDefinedOkxValue_(row, null, [
+      'fillPx',
+      'px',
+      'avgPx'
+    ]));
+    const explicitUsdt = parseOkxNumberMaybe_(pickFirstDefinedOkxValue_(row, null, [
+      'fillNotionalUsd',
+      'notionalUsd',
+      'fillUsdPx'
+    ]));
+
+    totalBoughtBtc += btcQty;
+    totalInvestedUsdt += explicitUsdt > 0 ? explicitUsdt : (btcQty * fillPx);
+  });
+
+  return {
+    buyCount: list.length,
+    totalBoughtBtc: totalBoughtBtc,
+    totalInvestedUsdt: totalInvestedUsdt
+  };
+}
+
+function selectLatestOkxFill_(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return null;
+  return list.reduce((latest, row) => {
+    if (!latest) return row;
+    const latestTs = parseInt(latest.fillTime || latest.ts || 0, 10) || 0;
+    const rowTs = parseInt(row.fillTime || row.ts || 0, 10) || 0;
+    return rowTs > latestTs ? row : latest;
+  }, null);
 }
 
 function setLastOkxRecurringDebugPayload_(payload) {
