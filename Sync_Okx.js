@@ -404,6 +404,14 @@ function fetchOkxStructured_(baseUrl, apiKey, apiSecret, apiPassphrase) {
 function fetchOkxRecurringBuyDebug_(baseUrl, apiKey, apiSecret, apiPassphrase) {
   const pendingRes = fetchOkxApi_(baseUrl, '/api/v5/tradingBot/recurring/orders-algo-pending', {}, apiKey, apiSecret, apiPassphrase);
   if (pendingRes.code !== "0") {
+    if (String(pendingRes.code) === '50120') {
+      SyncManager.log(
+        "WARNING",
+        `[OKX Recurring Debug] Recurring endpoint permission denied. Falling back to read-only BTC spot fills. code=${pendingRes.code}`,
+        "Sync_Okx"
+      );
+      return fetchOkxSpotBtcFillDebug_(baseUrl, apiKey, apiSecret, apiPassphrase);
+    }
     return { success: false, status: `Pending Code: ${pendingRes.code}, Msg: ${pendingRes.msg}` };
   }
 
@@ -470,7 +478,86 @@ function fetchOkxRecurringBuyDebug_(baseUrl, apiKey, apiSecret, apiPassphrase) {
   return {
     success: true,
     rowCount: pendingList.length,
-    message: `pending=${pendingList.length}; firstAlgoId=${firstAlgoId || 'n/a'}; subOrders=${preview.subOrdersCount}; history=${preview.historyCount}`
+    message: `method=recurring; pending=${pendingList.length}; firstAlgoId=${firstAlgoId || 'n/a'}; subOrders=${preview.subOrdersCount}; history=${preview.historyCount}`
+  };
+}
+
+function fetchOkxSpotBtcFillDebug_(baseUrl, apiKey, apiSecret, apiPassphrase) {
+  const fillsHistoryRes = fetchOkxApi_(
+    baseUrl,
+    '/api/v5/trade/fills-history',
+    { instType: 'SPOT', instId: 'BTC-USDT', limit: 100 },
+    apiKey,
+    apiSecret,
+    apiPassphrase
+  );
+
+  if (fillsHistoryRes.code !== "0") {
+    return { success: false, status: `FillsHistory Code: ${fillsHistoryRes.code}, Msg: ${fillsHistoryRes.msg}` };
+  }
+
+  const fillsRes = fetchOkxApi_(
+    baseUrl,
+    '/api/v5/trade/fills',
+    { instType: 'SPOT', instId: 'BTC-USDT', limit: 100 },
+    apiKey,
+    apiSecret,
+    apiPassphrase
+  );
+
+  const historyRows = Array.isArray(fillsHistoryRes.data) ? fillsHistoryRes.data : [];
+  const recentRows = fillsRes.code === "0" && Array.isArray(fillsRes.data) ? fillsRes.data : [];
+  const mergedRows = dedupeOkxRowsByBillId_([].concat(historyRows, recentRows));
+  const buyRows = mergedRows.filter(isOkxBtcSpotBuyFill_);
+
+  let totalBoughtBtc = 0;
+  let totalInvestedUsdt = 0;
+
+  buyRows.forEach(row => {
+    const btcQty = parseOkxNumberMaybe_(pickFirstDefinedOkxValue_(row, null, [
+      'fillSz',
+      'accFillSz',
+      'sz'
+    ]));
+    const fillPx = parseOkxNumberMaybe_(pickFirstDefinedOkxValue_(row, null, [
+      'fillPx',
+      'px',
+      'avgPx'
+    ]));
+    const explicitUsdt = parseOkxNumberMaybe_(pickFirstDefinedOkxValue_(row, null, [
+      'fillNotionalUsd',
+      'notionalUsd',
+      'fillUsdPx'
+    ]));
+
+    totalBoughtBtc += btcQty;
+    totalInvestedUsdt += explicitUsdt > 0 ? explicitUsdt : (btcQty * fillPx);
+  });
+
+  const preview = {
+    method: 'spot_fills_fallback',
+    fillsHistoryCode: fillsHistoryRes.code,
+    fillsHistoryCount: historyRows.length,
+    fillsCode: fillsRes.code,
+    fillsCount: recentRows.length,
+    mergedCount: mergedRows.length,
+    buyCount: buyRows.length,
+    firstFillKeys: mergedRows[0] ? Object.keys(mergedRows[0]) : [],
+    firstFill: toOkxDebugPreview_(mergedRows[0]),
+    derivedSummary: {
+      instId: 'BTC-USDT',
+      totalBoughtBtc: totalBoughtBtc || null,
+      totalInvestedUsdt: totalInvestedUsdt || null,
+      derivedAvgPrice: totalBoughtBtc > 0 ? (totalInvestedUsdt / totalBoughtBtc) : null
+    }
+  };
+
+  SyncManager.log("INFO", `[OKX Recurring Debug Fallback] ${JSON.stringify(preview)}`, "Sync_Okx");
+
+  return {
+    success: true,
+    rowCount: buyRows.length,
+    message: `method=spot_fills_fallback; buyRows=${buyRows.length}; totalBoughtBtc=${formatOkxDebugNumber_(totalBoughtBtc)}; avgPx=${formatOkxDebugNumber_(totalBoughtBtc > 0 ? (totalInvestedUsdt / totalBoughtBtc) : 0)}`
   };
 }
 
@@ -577,6 +664,40 @@ function parseOkxNumberMaybe_(value) {
   if (value === null || value === undefined || value === '') return 0;
   const num = parseFloat(value);
   return isNaN(num) ? 0 : num;
+}
+
+function isOkxBtcSpotBuyFill_(row) {
+  if (!row || typeof row !== 'object') return false;
+  const instId = String(row.instId || '').toUpperCase();
+  const side = String(row.side || '').toLowerCase();
+  const execType = String(row.execType || '').toLowerCase();
+  if (instId !== 'BTC-USDT') return false;
+  if (side !== 'buy') return false;
+  if (execType && execType !== 't' && execType !== 'm') return true;
+  return true;
+}
+
+function dedupeOkxRowsByBillId_(rows) {
+  const seen = {};
+  const output = [];
+  rows.forEach(row => {
+    if (!row || typeof row !== 'object') return;
+    const key = String(
+      row.billId ||
+      row.tradeId ||
+      row.fillId ||
+      `${row.instId || ''}:${row.ts || row.fillTime || row.uTime || ''}:${row.fillSz || row.sz || ''}:${row.fillPx || row.px || ''}`
+    );
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    output.push(row);
+  });
+  return output;
+}
+
+function formatOkxDebugNumber_(value) {
+  if (!value || !isFinite(value)) return '0';
+  return Number(value).toFixed(8);
 }
 
 function buildOkxAccountMeta_(item) {
