@@ -299,5 +299,72 @@ function handleDebugOkxRecurring(data) {
     };
   }
 
+  writeOkxDcaDebugRow_(payload, debugPayload);
+
   return ContentService.createTextOutput(JSON.stringify(payload));
+}
+
+function ensureSheetExists_(ss, sheetName, headers) {
+  let sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+  }
+
+  const requiredHeaders = headers || [];
+  if (!requiredHeaders.length) return sheet;
+
+  const headerRange = sheet.getRange(1, 1, 1, requiredHeaders.length);
+  const currentHeaders = headerRange.getValues()[0];
+  const matches = requiredHeaders.every((header, idx) => String(currentHeaders[idx] || '').trim() === header);
+
+  if (!matches) {
+    headerRange.setValues([requiredHeaders]);
+    sheet.setFrozenRows(1);
+  }
+
+  return sheet;
+}
+
+function writeOkxDcaDebugRow_(payload, debugPayload) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const headers = [
+      'timestamp',
+      'method',
+      'instId',
+      'buyCount',
+      'totalBoughtBtc',
+      'totalInvestedUsdt',
+      'derivedAvgPrice',
+      'pendingCount',
+      'subOrdersCount',
+      'historyCount',
+      'lastFillBillId',
+      'lastFillTime',
+      'rawMessage'
+    ];
+    const sheet = ensureSheetExists_(ss, 'OKX_DCA_Debug', headers);
+    const summary = payload && payload.summary ? payload.summary : {};
+    const preview = payload && payload.preview ? payload.preview : {};
+    const firstFill = preview.firstFill || {};
+    const row = [[
+      payload.timestamp || new Date().toISOString(),
+      payload.method || '',
+      summary.instId || '',
+      preview.buyCount || '',
+      summary.totalBoughtBtc || '',
+      summary.totalInvestedUsdt || '',
+      summary.derivedAvgPrice || '',
+      preview.pendingCount || '',
+      preview.subOrdersCount || '',
+      preview.historyCount || '',
+      firstFill.billId || '',
+      firstFill.fillTime || firstFill.ts || '',
+      payload.rawMessage || ''
+    ]];
+
+    sheet.appendRow(row[0]);
+  } catch (e) {
+    LogService.error(`Failed to write OKX_DCA_Debug row: ${e.message || e}`, 'Webhook:DebugOKXRecurring');
+  }
 }
