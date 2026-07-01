@@ -184,8 +184,50 @@ function getOkxBalance() {
       });
     }
 
+    // G. Recurring Buy (Debug only; no ledger writes yet)
+    const recurringRes = fetchOkxRecurringBuyDebug_(baseUrl, apiKey, apiSecret, apiPassphrase);
+    if (recurringRes.success) {
+      SyncManager.registerSourceCheck(result, {
+        name: 'Recurring Buy Debug',
+        required: false,
+        success: true,
+        rows: recurringRes.rowCount || 0,
+        message: recurringRes.message || ''
+      });
+    } else {
+      SyncManager.registerSourceCheck(result, {
+        name: 'Recurring Buy Debug',
+        required: false,
+        success: false,
+        message: recurringRes.status || 'Unknown Error'
+      });
+    }
+
     SyncManager.log("INFO", `Collected ${result.assets.length} asset entries from OKX.`, MODULE_NAME);
     return SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
+  });
+}
+
+function debugOkxRecurringBuy() {
+  const MODULE_NAME = "Sync_Okx";
+  SyncManager.run(MODULE_NAME, () => {
+    const creds = Credentials.get('OKX');
+    const { apiKey, apiSecret, apiPassphrase } = creds;
+    const baseUrl = 'https://www.okx.com';
+
+    if (!apiKey || !apiSecret || !apiPassphrase) {
+      SyncManager.log("ERROR", "[OKX Recurring Debug] Missing OKX Keys", MODULE_NAME);
+      return false;
+    }
+
+    const recurringRes = fetchOkxRecurringBuyDebug_(baseUrl, apiKey, apiSecret, apiPassphrase);
+    if (!recurringRes.success) {
+      SyncManager.log("ERROR", `[OKX Recurring Debug] ${recurringRes.status || 'Unknown Error'}`, MODULE_NAME);
+      return false;
+    }
+
+    SyncManager.log("INFO", `[OKX Recurring Debug] ${recurringRes.message || 'Completed'}`, MODULE_NAME);
+    return true;
   });
 }
 
@@ -359,6 +401,79 @@ function fetchOkxStructured_(baseUrl, apiKey, apiSecret, apiPassphrase) {
   return { success: false, status: `Code: ${res.code}, Msg: ${res.msg}` };
 }
 
+function fetchOkxRecurringBuyDebug_(baseUrl, apiKey, apiSecret, apiPassphrase) {
+  const pendingRes = fetchOkxApi_(baseUrl, '/api/v5/tradingBot/recurring/orders-algo-pending', {}, apiKey, apiSecret, apiPassphrase);
+  if (pendingRes.code !== "0") {
+    return { success: false, status: `Pending Code: ${pendingRes.code}, Msg: ${pendingRes.msg}` };
+  }
+
+  const pendingList = Array.isArray(pendingRes.data) ? pendingRes.data : [];
+  const firstPending = pendingList[0] || null;
+  const firstAlgoId = extractOkxRecurringAlgoId_(firstPending);
+
+  let detailsRes = null;
+  let subOrdersRes = null;
+  let derivedSummary = null;
+
+  if (firstAlgoId) {
+    detailsRes = fetchOkxApi_(
+      baseUrl,
+      '/api/v5/tradingBot/recurring/orders-algo-details',
+      { algoId: firstAlgoId },
+      apiKey,
+      apiSecret,
+      apiPassphrase
+    );
+
+    subOrdersRes = fetchOkxApi_(
+      baseUrl,
+      '/api/v5/tradingBot/recurring/sub-orders',
+      { algoId: firstAlgoId },
+      apiKey,
+      apiSecret,
+      apiPassphrase
+    );
+
+    derivedSummary = buildOkxRecurringDerivedSummary_(firstPending, detailsRes, subOrdersRes);
+  }
+
+  const historyRes = fetchOkxApi_(
+    baseUrl,
+    '/api/v5/tradingBot/recurring/orders-algo-history',
+    { limit: 10 },
+    apiKey,
+    apiSecret,
+    apiPassphrase
+  );
+
+  const preview = {
+    pendingCount: pendingList.length,
+    firstPendingKeys: firstPending ? Object.keys(firstPending) : [],
+    firstPending: toOkxDebugPreview_(firstPending),
+    firstAlgoId: firstAlgoId || '',
+    detailsCode: detailsRes ? detailsRes.code : '',
+    detailsKeys: detailsRes && Array.isArray(detailsRes.data) && detailsRes.data[0] ? Object.keys(detailsRes.data[0]) : [],
+    detailsPreview: detailsRes && Array.isArray(detailsRes.data) ? toOkxDebugPreview_(detailsRes.data[0]) : null,
+    subOrdersCode: subOrdersRes ? subOrdersRes.code : '',
+    subOrdersCount: subOrdersRes && Array.isArray(subOrdersRes.data) ? subOrdersRes.data.length : 0,
+    firstSubOrderKeys: subOrdersRes && Array.isArray(subOrdersRes.data) && subOrdersRes.data[0] ? Object.keys(subOrdersRes.data[0]) : [],
+    firstSubOrder: subOrdersRes && Array.isArray(subOrdersRes.data) ? toOkxDebugPreview_(subOrdersRes.data[0]) : null,
+    historyCode: historyRes ? historyRes.code : '',
+    historyCount: historyRes && Array.isArray(historyRes.data) ? historyRes.data.length : 0,
+    firstHistoryKeys: historyRes && Array.isArray(historyRes.data) && historyRes.data[0] ? Object.keys(historyRes.data[0]) : [],
+    firstHistory: historyRes && Array.isArray(historyRes.data) ? toOkxDebugPreview_(historyRes.data[0]) : null,
+    derivedSummary: derivedSummary
+  };
+
+  SyncManager.log("INFO", `[OKX Recurring Debug] ${JSON.stringify(preview)}`, "Sync_Okx");
+
+  return {
+    success: true,
+    rowCount: pendingList.length,
+    message: `pending=${pendingList.length}; firstAlgoId=${firstAlgoId || 'n/a'}; subOrders=${preview.subOrdersCount}; history=${preview.historyCount}`
+  };
+}
+
 function fetchOkxApi_(baseUrl, endpoint, params, apiKey, apiSecret, apiPassphrase) {
   const method = 'GET';
   const timestamp = new Date().toISOString();
@@ -387,6 +502,81 @@ function fetchOkxApi_(baseUrl, endpoint, params, apiKey, apiSecret, apiPassphras
     const json = JSON.parse(content);
     return json;
   } catch (e) { return { code: "-1", msg: e.message }; }
+}
+
+function extractOkxRecurringAlgoId_(item) {
+  if (!item || typeof item !== 'object') return '';
+  return String(item.algoId || item.algoClOrdId || item.id || '').trim();
+}
+
+function toOkxDebugPreview_(value) {
+  if (!value || typeof value !== 'object') return value || null;
+  const preview = {};
+  Object.keys(value).slice(0, 20).forEach(key => {
+    preview[key] = value[key];
+  });
+  return preview;
+}
+
+function buildOkxRecurringDerivedSummary_(pendingItem, detailsRes, subOrdersRes) {
+  const details = detailsRes && Array.isArray(detailsRes.data) ? detailsRes.data[0] : null;
+  const subOrders = subOrdersRes && Array.isArray(subOrdersRes.data) ? subOrdersRes.data : [];
+  const summary = {
+    nextInvestTime: pickFirstDefinedOkxValue_(pendingItem, details, ['nextInvestTime', 'nextTime']),
+    recurringAmount: pickFirstDefinedOkxValue_(pendingItem, details, ['amount', 'recurringAmount', 'investmentAmt', 'investAmt']),
+    quoteCcy: pickFirstDefinedOkxValue_(pendingItem, details, ['quoteCcy', 'quoteCcyName', 'investCcy']),
+    baseCcy: pickFirstDefinedOkxValue_(pendingItem, details, ['baseCcy', 'ccy']),
+    executeCount: subOrders.length
+  };
+
+  let totalInvested = 0;
+  let totalBought = 0;
+
+  subOrders.forEach(order => {
+    totalInvested += parseOkxNumberMaybe_(pickFirstDefinedOkxValue_(order, null, [
+      'investmentAmt',
+      'investAmt',
+      'amt',
+      'sz',
+      'orderAmt'
+    ]));
+    totalBought += parseOkxNumberMaybe_(pickFirstDefinedOkxValue_(order, null, [
+      'filledSz',
+      'fillSz',
+      'accFillSz',
+      'baseSz',
+      'qty'
+    ]));
+  });
+
+  if (totalInvested > 0) summary.totalInvested = totalInvested;
+  if (totalBought > 0) {
+    summary.totalBought = totalBought;
+    summary.derivedAvgPrice = totalInvested > 0 ? totalInvested / totalBought : null;
+  }
+
+  return summary;
+}
+
+function pickFirstDefinedOkxValue_(primary, secondary, keys) {
+  const sources = [primary, secondary];
+  for (let i = 0; i < sources.length; i++) {
+    const src = sources[i];
+    if (!src || typeof src !== 'object') continue;
+    for (let j = 0; j < keys.length; j++) {
+      const value = src[keys[j]];
+      if (value !== undefined && value !== null && String(value).trim() !== '') {
+        return value;
+      }
+    }
+  }
+  return null;
+}
+
+function parseOkxNumberMaybe_(value) {
+  if (value === null || value === undefined || value === '') return 0;
+  const num = parseFloat(value);
+  return isNaN(num) ? 0 : num;
 }
 
 function buildOkxAccountMeta_(item) {
