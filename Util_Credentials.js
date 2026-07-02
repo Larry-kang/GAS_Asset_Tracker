@@ -37,6 +37,13 @@ const Credentials = {
             creds.proxyPassword = Settings.get('PROXY_PASSWORD');
         }
 
+        if (exchange === 'BITOPRO') {
+            creds.identity =
+                Settings.get('BITOPRO_API_IDENTITY') ||
+                Settings.get('BITOPRO_IDENTITY') ||
+                '';
+        }
+
         return creds;
     },
 

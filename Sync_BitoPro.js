@@ -10,7 +10,7 @@ function getBitoProBalance() {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const result = SyncManager.createResult("BitoPro");
     const creds = Credentials.get('BITOPRO');
-    const { apiKey, apiSecret } = creds;
+    const { apiKey, apiSecret, identity } = creds;
     const baseUrl = 'https://api.bitopro.com/v3';
 
     if (!apiKey || !apiSecret) {
@@ -55,7 +55,7 @@ function getBitoProBalance() {
     }
 
     const btcCostRes = typeof syncBitoProBtcSpotCostBasis_ === 'function'
-      ? syncBitoProBtcSpotCostBasis_(ss, baseUrl, apiKey, apiSecret)
+      ? syncBitoProBtcSpotCostBasis_(ss, baseUrl, apiKey, apiSecret, identity)
       : { success: false, status: 'syncBitoProBtcSpotCostBasis_ missing' };
     SyncManager.registerSourceCheck(result, {
       name: 'BTC Spot Cost',
@@ -71,9 +71,12 @@ function getBitoProBalance() {
 
 // ... Helpers (English Logs) ...
 
-function fetchBitoProApi_(baseUrl, endpoint, method, params, apiKey, apiSecret) {
+function fetchBitoProApi_(baseUrl, endpoint, method, params, apiKey, apiSecret, identity) {
   const nonce = Date.now() - 2000; // Time Skew Fix
   const payloadObj = { ...params, nonce: nonce };
+  if ((method === 'GET' || method === 'DELETE') && identity) {
+    payloadObj.identity = identity;
+  }
   const payloadJson = JSON.stringify(payloadObj);
   const payloadBase64 = Utilities.base64Encode(payloadJson);
   const signature = Utilities.computeHmacSignature(Utilities.MacAlgorithm.HMAC_SHA_384, payloadBase64, apiSecret)
@@ -99,8 +102,12 @@ function fetchBitoProApi_(baseUrl, endpoint, method, params, apiKey, apiSecret) 
   }
 }
 
-function syncBitoProBtcSpotCostBasis_(ss, baseUrl, apiKey, apiSecret) {
+function syncBitoProBtcSpotCostBasis_(ss, baseUrl, apiKey, apiSecret, identity) {
   try {
+    if (!identity) {
+      return { success: false, status: 'Missing BITOPRO_API_IDENTITY / BITOPRO_IDENTITY for trade history endpoint' };
+    }
+
     const sheet = typeof getApiSummaryExportSheet_ === 'function' ? getApiSummaryExportSheet_(ss) : null;
     if (!sheet) {
       return { success: false, status: 'API_Summary_Export not found' };
@@ -109,7 +116,7 @@ function syncBitoProBtcSpotCostBasis_(ss, baseUrl, apiKey, apiSecret) {
     const state = typeof readApiSummaryExportState_ === 'function'
       ? readApiSummaryExportState_(sheet, 'BITOPRO_BTC_Spot_')
       : {};
-    const summary = fetchBitoProBtcSpotTradeSummary_(baseUrl, apiKey, apiSecret, state);
+    const summary = fetchBitoProBtcSpotTradeSummary_(baseUrl, apiKey, apiSecret, identity, state);
     if (!summary.success) return summary;
 
     const entries = buildBitoProBtcSpotSummaryEntries_(summary);
@@ -130,7 +137,7 @@ function syncBitoProBtcSpotCostBasis_(ss, baseUrl, apiKey, apiSecret) {
   }
 }
 
-function fetchBitoProBtcSpotTradeSummary_(baseUrl, apiKey, apiSecret, state) {
+function fetchBitoProBtcSpotTradeSummary_(baseUrl, apiKey, apiSecret, identity, state) {
   const pair = 'btc_twd';
   const historyWindowDays = 90;
   const now = Date.now();
@@ -138,7 +145,7 @@ function fetchBitoProBtcSpotTradeSummary_(baseUrl, apiKey, apiSecret, state) {
   const startTimestamp = Math.max(parseInt(state.LastTradeTime || 0, 10) || defaultStart, defaultStart);
   const checkpointTradeId = String(state.LastTradeId || '').trim();
   const checkpointTradeTime = parseInt(state.LastTradeTime || 0, 10) || 0;
-  const rows = fetchAllBitoProTradesForPair_(baseUrl, apiKey, apiSecret, pair, startTimestamp, now);
+  const rows = fetchAllBitoProTradesForPair_(baseUrl, apiKey, apiSecret, identity, pair, startTimestamp, now);
   if (!rows.success) return rows;
 
   const priorBought = parseSummaryNumber_(state.TotalBought_BTC);
@@ -188,7 +195,7 @@ function fetchBitoProBtcSpotTradeSummary_(baseUrl, apiKey, apiSecret, state) {
   };
 }
 
-function fetchAllBitoProTradesForPair_(baseUrl, apiKey, apiSecret, pair, startTimestamp, endTimestamp) {
+function fetchAllBitoProTradesForPair_(baseUrl, apiKey, apiSecret, identity, pair, startTimestamp, endTimestamp) {
   const rows = [];
   const seen = {};
   let tradeIdCursor = '';
@@ -203,7 +210,7 @@ function fetchAllBitoProTradesForPair_(baseUrl, apiKey, apiSecret, pair, startTi
     if (tradeIdCursor) params.tradeId = tradeIdCursor;
 
     const endpoint = `/orders/trades/${pair}`;
-    const res = fetchBitoProApi_(baseUrl, endpoint, 'GET', params, apiKey, apiSecret);
+    const res = fetchBitoProApi_(baseUrl, endpoint, 'GET', params, apiKey, apiSecret, identity);
     if (res && res.error) {
       return { success: false, status: `BitoPro trades ${pair} failed: ${res.error}` };
     }
