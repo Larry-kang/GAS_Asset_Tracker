@@ -85,6 +85,16 @@ Webhook 回傳仍保留舊版 `buildContext()` payload；如果上述 export she
 
 這樣未來新增像 `BTC_Spot_Quantity`、`IBIT_Quantity`、`IBIT_BTC_Per_Share` 之類欄位，原則上只要改 sheet formula，不必再改 webhook code。
 
+目前 OKX DCA / recurring buy 的 read-only 派生資料，也會在同步時自動 upsert 到 `API_Summary_Export`，包含：
+
+- `OKX_BTC_DCA_BuyCount`
+- `OKX_BTC_DCA_TotalBought_BTC`
+- `OKX_BTC_DCA_TotalInvested_USDT`
+- `OKX_BTC_DCA_DerivedAvgPrice`
+- `OKX_BTC_DCA_LastFillBillId`
+- `OKX_BTC_DCA_LastFillTime`
+- `OKX_BTC_DCA_SyncMode`
+
 ## 自動化流程
 
 `runAutomationMaster()` 是主要排程入口。

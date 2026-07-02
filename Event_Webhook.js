@@ -264,50 +264,19 @@ function handleDebugOkxRecurring(data) {
   }
 
   const ss = getPrimarySpreadsheetForDebug_();
-  const sheet = ss ? ss.getSheetByName('OKX_DCA_Debug') : null;
-  const debugState = sheet ? readOkxDcaDebugState_(sheet) : {};
+  const syncRes = typeof syncOkxRecurringArtifacts_ === 'function'
+    ? syncOkxRecurringArtifacts_(ss, baseUrl, apiKey, apiSecret, apiPassphrase)
+    : null;
 
-  const debugRes = typeof fetchOkxSpotBtcFillIncrementalDebug_ === 'function'
-    ? fetchOkxSpotBtcFillIncrementalDebug_(baseUrl, apiKey, apiSecret, apiPassphrase, debugState)
-    : fetchOkxRecurringBuyDebug_(baseUrl, apiKey, apiSecret, apiPassphrase);
-  if (!debugRes.success) {
+  if (!syncRes || !syncRes.success) {
     return ContentService.createTextOutput(JSON.stringify({
       status: "error",
       debugAction: "okx_recurring",
-      msg: debugRes.status || "Unknown Error",
+      msg: (syncRes && syncRes.status) || "Unknown Error",
       timestamp: new Date().toISOString()
     }));
   }
-
-  let payload = {
-    status: "success",
-    debugAction: "okx_recurring",
-    method: "",
-    summary: {},
-    rawMessage: debugRes.message || "",
-    timestamp: new Date().toISOString()
-  };
-
-  const debugPayload = typeof getLastOkxRecurringDebugPayload_ === 'function'
-    ? getLastOkxRecurringDebugPayload_()
-    : null;
-
-  if (debugPayload) {
-    payload.method = debugPayload.method || "";
-    payload.summary = debugPayload.derivedSummary || {};
-    payload.preview = {
-      pendingCount: debugPayload.pendingCount,
-      subOrdersCount: debugPayload.subOrdersCount,
-      historyCount: debugPayload.historyCount,
-      buyCount: debugPayload.buyCount,
-      firstFill: debugPayload.firstFill || null,
-      firstPending: debugPayload.firstPending || null
-    };
-  }
-
-  writeOkxDcaDebugArtifacts_(payload, debugPayload);
-
-  return ContentService.createTextOutput(JSON.stringify(payload));
+  return ContentService.createTextOutput(JSON.stringify(syncRes.payload));
 }
 
 function ensureSheetExists_(ss, sheetName, headers) {
@@ -375,9 +344,9 @@ function readOkxDcaDebugState_(sheet) {
   return state;
 }
 
-function writeOkxDcaDebugArtifacts_(payload, debugPayload) {
+function writeOkxDcaDebugArtifacts_(payload, debugPayload, providedSpreadsheet) {
   try {
-    const ss = getPrimarySpreadsheetForDebug_();
+    const ss = providedSpreadsheet || getPrimarySpreadsheetForDebug_();
     if (!ss) {
       LogService.error('No spreadsheet context for OKX_DCA_Debug write. Set PRIMARY_SPREADSHEET_ID or use a bound execution context.', 'Webhook:DebugOKXRecurring');
       return;
@@ -451,4 +420,162 @@ function writeOkxDcaDebugArtifacts_(payload, debugPayload) {
   } catch (e) {
     LogService.error(`Failed to write OKX_DCA_Debug row: ${e.message || e}`, 'Webhook:DebugOKXRecurring');
   }
+}
+
+function buildOkxRecurringResponsePayload_(debugRes, debugPayload) {
+  const payload = {
+    status: "success",
+    debugAction: "okx_recurring",
+    method: "",
+    summary: {},
+    rawMessage: debugRes && debugRes.message ? debugRes.message : "",
+    timestamp: new Date().toISOString()
+  };
+
+  if (debugPayload) {
+    payload.method = debugPayload.method || "";
+    payload.summary = debugPayload.derivedSummary || {};
+    payload.preview = {
+      pendingCount: debugPayload.pendingCount,
+      subOrdersCount: debugPayload.subOrdersCount,
+      historyCount: debugPayload.historyCount,
+      buyCount: debugPayload.buyCount,
+      firstFill: debugPayload.firstFill || null,
+      firstPending: debugPayload.firstPending || null
+    };
+  }
+
+  return payload;
+}
+
+function syncOkxRecurringArtifacts_(ss, baseUrl, apiKey, apiSecret, apiPassphrase) {
+  const spreadsheet = ss || getPrimarySpreadsheetForDebug_();
+  const debugSheet = spreadsheet ? spreadsheet.getSheetByName('OKX_DCA_Debug') : null;
+  const debugState = debugSheet ? readOkxDcaDebugState_(debugSheet) : {};
+
+  const debugRes = typeof fetchOkxSpotBtcFillIncrementalDebug_ === 'function'
+    ? fetchOkxSpotBtcFillIncrementalDebug_(baseUrl, apiKey, apiSecret, apiPassphrase, debugState)
+    : fetchOkxRecurringBuyDebug_(baseUrl, apiKey, apiSecret, apiPassphrase);
+
+  if (!debugRes.success) {
+    return {
+      success: false,
+      status: debugRes.status || "Unknown Error"
+    };
+  }
+
+  const debugPayload = typeof getLastOkxRecurringDebugPayload_ === 'function'
+    ? getLastOkxRecurringDebugPayload_()
+    : null;
+  const payload = buildOkxRecurringResponsePayload_(debugRes, debugPayload);
+
+  writeOkxDcaDebugArtifacts_(payload, debugPayload, spreadsheet);
+  const exportWriteRes = writeOkxDcaSummaryExport_(payload, spreadsheet);
+
+  return {
+    success: true,
+    rowCount: debugRes.rowCount || 0,
+    exportRowCount: exportWriteRes && exportWriteRes.rowCount ? exportWriteRes.rowCount : 0,
+    message: debugRes.message || "",
+    payload: payload
+  };
+}
+
+function writeOkxDcaSummaryExport_(payload, providedSpreadsheet) {
+  try {
+    const ss = providedSpreadsheet || getPrimarySpreadsheetForDebug_();
+    if (!ss) return { success: false, status: 'No spreadsheet context' };
+
+    const sheetName = (Config && Config.SHEET_NAMES && Config.SHEET_NAMES.INVENTORY_EXPORT_SUMMARY)
+      ? Config.SHEET_NAMES.INVENTORY_EXPORT_SUMMARY
+      : 'API_Summary_Export';
+    const sheet = ss.getSheetByName(sheetName);
+    if (!sheet) {
+      LogService.warn(`Sheet "${sheetName}" not found. Skipping OKX DCA summary export write.`, 'Webhook:DebugOKXRecurring');
+      return { success: false, status: 'Summary export sheet not found' };
+    }
+
+    const entries = buildOkxDcaSummaryExportEntries_(payload);
+    if (!entries.length) return { success: true, rowCount: 0 };
+
+    upsertApiSummaryExportEntries_(sheet, entries);
+    return { success: true, rowCount: entries.length };
+  } catch (e) {
+    LogService.error(`Failed to write API_Summary_Export rows for OKX DCA: ${e.message || e}`, 'Webhook:DebugOKXRecurring');
+    return { success: false, status: e.message || String(e) };
+  }
+}
+
+function buildOkxDcaSummaryExportEntries_(payload) {
+  const summary = payload && payload.summary ? payload.summary : {};
+  const timestamp = payload && payload.timestamp ? payload.timestamp : new Date().toISOString();
+  const method = payload && payload.method ? payload.method : '';
+  const source = method || 'okx_dca_sync';
+  const syncMode = summary.syncMode || '';
+  const entries = [
+    { key: 'OKX_BTC_DCA_BuyCount', value: summary.incrementalBuyCount || payload.preview && payload.preview.buyCount || '', source: source, asOf: timestamp, note: syncMode ? `syncMode=${syncMode}` : '' },
+    { key: 'OKX_BTC_DCA_TotalBought_BTC', value: summary.totalBoughtBtc || '', source: source, asOf: timestamp, note: 'Cumulative BTC bought from OKX BTC-USDT spot fills' },
+    { key: 'OKX_BTC_DCA_TotalInvested_USDT', value: summary.totalInvestedUsdt || '', source: source, asOf: timestamp, note: 'Cumulative USDT invested from OKX BTC-USDT spot fills' },
+    { key: 'OKX_BTC_DCA_DerivedAvgPrice', value: summary.derivedAvgPrice || '', source: source, asOf: timestamp, note: 'Derived avg cost in USDT/BTC from OKX BTC-USDT spot fills' },
+    { key: 'OKX_BTC_DCA_LastFillBillId', value: summary.lastFillBillId || '', source: source, asOf: timestamp, note: 'Checkpoint for incremental OKX DCA sync' },
+    { key: 'OKX_BTC_DCA_LastFillTime', value: summary.lastFillTime || '', source: source, asOf: timestamp, note: 'OKX fill timestamp (ms)' },
+    { key: 'OKX_BTC_DCA_SyncMode', value: syncMode, source: source, asOf: timestamp, note: payload && payload.rawMessage ? payload.rawMessage : '' }
+  ];
+
+  return entries;
+}
+
+function upsertApiSummaryExportEntries_(sheet, entries) {
+  const maxColumns = Math.max(sheet.getLastColumn(), 5);
+  const existingValues = sheet.getRange(1, 1, Math.max(sheet.getLastRow(), 1), maxColumns).getValues();
+  const headerRow = existingValues[0] || [];
+  const headerIndexes = mapSummaryExportHeaderIndexes_(headerRow);
+  const rowsByKey = {};
+
+  for (let rowIndex = 1; rowIndex < existingValues.length; rowIndex++) {
+    const existingKey = String(existingValues[rowIndex][headerIndexes.key] || '').trim();
+    if (!existingKey) continue;
+    rowsByKey[existingKey] = rowIndex + 1;
+  }
+
+  const rowsToWrite = [];
+  entries.forEach(entry => {
+    const targetRow = rowsByKey[entry.key] || Math.max(sheet.getLastRow() + rowsToWrite.length + 1, 2);
+    const row = new Array(maxColumns).fill('');
+
+    if (rowsByKey[entry.key]) {
+      const existingRowValues = sheet.getRange(targetRow, 1, 1, maxColumns).getValues()[0];
+      for (let i = 0; i < maxColumns; i++) row[i] = existingRowValues[i];
+    }
+
+    row[headerIndexes.key] = entry.key;
+    row[headerIndexes.value] = entry.value;
+    if (headerIndexes.source >= 0) row[headerIndexes.source] = entry.source || '';
+    if (headerIndexes.asOf >= 0) row[headerIndexes.asOf] = entry.asOf || '';
+    if (headerIndexes.note >= 0) row[headerIndexes.note] = entry.note || '';
+
+    rowsToWrite.push({ rowIndex: targetRow, values: row });
+  });
+
+  rowsToWrite.forEach(item => {
+    sheet.getRange(item.rowIndex, 1, 1, maxColumns).setValues([item.values]);
+  });
+}
+
+function mapSummaryExportHeaderIndexes_(headerRow) {
+  const normalizedHeaders = (headerRow || []).map(value => String(value || '').trim().toLowerCase());
+  const keyIndex = normalizedHeaders.indexOf('key');
+  const valueIndex = normalizedHeaders.indexOf('value');
+
+  if (keyIndex < 0 || valueIndex < 0) {
+    throw new Error('API_Summary_Export missing required key/value headers');
+  }
+
+  return {
+    key: keyIndex,
+    value: valueIndex,
+    source: normalizedHeaders.indexOf('source'),
+    asOf: normalizedHeaders.indexOf('asof'),
+    note: normalizedHeaders.indexOf('note')
+  };
 }

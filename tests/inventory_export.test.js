@@ -138,4 +138,51 @@ if (typeof require === 'function') {
     assert.equal(bundle.positions[0].note, 'cold wallet');
     assert.equal(bundle.positions[1].account, 'IBKR');
   });
+
+  test('OKX DCA summary export helpers normalize headers and build stable rows', () => {
+    const repoRoot = path.resolve(__dirname, '..');
+    const context = loadScripts([
+      path.join(repoRoot, 'Event_Webhook.js')
+    ], {
+      JSON,
+      Date,
+      console
+    });
+
+    const headerIndexes = evaluateInContext(
+      "mapSummaryExportHeaderIndexes_(['key', 'value', ' source', 'asOf', 'note'])",
+      context
+    );
+    assert.equal(headerIndexes.key, 0);
+    assert.equal(headerIndexes.value, 1);
+    assert.equal(headerIndexes.source, 2);
+    assert.equal(headerIndexes.asOf, 3);
+    assert.equal(headerIndexes.note, 4);
+
+    const entries = evaluateInContext(`
+      buildOkxDcaSummaryExportEntries_({
+        method: 'spot_fills_incremental',
+        timestamp: '2026-07-01T16:13:58.757Z',
+        rawMessage: 'method=spot_fills_incremental; mode=incremental; newRows=0',
+        preview: { buyCount: 1525 },
+        summary: {
+          totalBoughtBtc: 0.05075447,
+          totalInvestedUsdt: 3536.4779348869974,
+          derivedAvgPrice: 69678.15711378698,
+          lastFillBillId: '3705053633186324480',
+          lastFillTime: 1782921602838,
+          syncMode: 'incremental',
+          incrementalBuyCount: 0
+        }
+      })
+    `, context);
+
+    assert.equal(entries.length, 7);
+    assert.equal(entries[0].key, 'OKX_BTC_DCA_BuyCount');
+    assert.equal(entries[0].value, 1525);
+    assert.equal(entries[1].key, 'OKX_BTC_DCA_TotalBought_BTC');
+    assert.equal(entries[1].value, 0.05075447);
+    assert.equal(entries[6].key, 'OKX_BTC_DCA_SyncMode');
+    assert.equal(entries[6].value, 'incremental');
+  });
 }

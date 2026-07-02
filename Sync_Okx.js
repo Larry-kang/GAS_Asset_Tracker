@@ -186,11 +186,13 @@ function getOkxBalance() {
       });
     }
 
-    // G. Recurring Buy (Debug only; no ledger writes yet)
-    const recurringRes = fetchOkxRecurringBuyDebug_(baseUrl, apiKey, apiSecret, apiPassphrase);
+    // G. Recurring Buy / DCA (read-only spot fills, persisted to debug + summary export)
+    const recurringRes = typeof syncOkxRecurringArtifacts_ === 'function'
+      ? syncOkxRecurringArtifacts_(ss, baseUrl, apiKey, apiSecret, apiPassphrase)
+      : fetchOkxRecurringBuyDebug_(baseUrl, apiKey, apiSecret, apiPassphrase);
     if (recurringRes.success) {
       SyncManager.registerSourceCheck(result, {
-        name: 'Recurring Buy Debug',
+        name: 'Recurring Buy / DCA',
         required: false,
         success: true,
         rows: recurringRes.rowCount || 0,
@@ -198,7 +200,7 @@ function getOkxBalance() {
       });
     } else {
       SyncManager.registerSourceCheck(result, {
-        name: 'Recurring Buy Debug',
+        name: 'Recurring Buy / DCA',
         required: false,
         success: false,
         message: recurringRes.status || 'Unknown Error'
