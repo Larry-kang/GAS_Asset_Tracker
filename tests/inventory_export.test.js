@@ -164,7 +164,7 @@ if (typeof require === 'function') {
         method: 'spot_fills_incremental',
         timestamp: '2026-07-01T16:13:58.757Z',
         rawMessage: 'method=spot_fills_incremental; mode=incremental; newRows=0',
-        preview: { buyCount: 1525 },
+        preview: { buyCount: 1535 },
         summary: {
           totalBoughtBtc: 0.05075447,
           totalInvestedUsdt: 3536.4779348869974,
@@ -172,17 +172,19 @@ if (typeof require === 'function') {
           lastFillBillId: '3705053633186324480',
           lastFillTime: 1782921602838,
           syncMode: 'incremental',
-          incrementalBuyCount: 0
+          incrementalBuyCount: 10
         }
       })
     `, context);
 
-    assert.equal(entries.length, 7);
+    assert.equal(entries.length, 8);
     assert.equal(entries[0].key, 'OKX_BTC_DCA_BuyCount');
-    assert.equal(entries[0].value, 1525);
-    assert.equal(entries[1].key, 'OKX_BTC_DCA_TotalBought_BTC');
-    assert.equal(entries[1].value, 0.05075447);
-    assert.equal(entries[6].key, 'OKX_BTC_DCA_SyncMode');
-    assert.equal(entries[6].value, 'incremental');
+    assert.equal(entries[0].value, 1535);
+    assert.equal(entries[1].key, 'OKX_BTC_DCA_IncrementalBuyCount');
+    assert.equal(entries[1].value, 10);
+    assert.equal(entries[2].key, 'OKX_BTC_DCA_TotalBought_BTC');
+    assert.equal(entries[2].value, 0.05075447);
+    assert.equal(entries[7].key, 'OKX_BTC_DCA_SyncMode');
+    assert.equal(entries[7].value, 'incremental');
   });
 }

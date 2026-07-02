@@ -512,8 +512,16 @@ function buildOkxDcaSummaryExportEntries_(payload) {
   const method = payload && payload.method ? payload.method : '';
   const source = method || 'okx_dca_sync';
   const syncMode = summary.syncMode || '';
+  const preview = payload && payload.preview ? payload.preview : {};
+  const cumulativeBuyCount = preview.buyCount !== undefined && preview.buyCount !== null && preview.buyCount !== ''
+    ? preview.buyCount
+    : '';
+  const incrementalBuyCount = summary.incrementalBuyCount !== undefined && summary.incrementalBuyCount !== null && summary.incrementalBuyCount !== ''
+    ? summary.incrementalBuyCount
+    : '';
   const entries = [
-    { key: 'OKX_BTC_DCA_BuyCount', value: summary.incrementalBuyCount || payload.preview && payload.preview.buyCount || '', source: source, asOf: timestamp, note: syncMode ? `syncMode=${syncMode}` : '' },
+    { key: 'OKX_BTC_DCA_BuyCount', value: cumulativeBuyCount, source: source, asOf: timestamp, note: 'Cumulative OKX BTC-USDT buy fill count' },
+    { key: 'OKX_BTC_DCA_IncrementalBuyCount', value: incrementalBuyCount, source: source, asOf: timestamp, note: syncMode ? `syncMode=${syncMode}` : '' },
     { key: 'OKX_BTC_DCA_TotalBought_BTC', value: summary.totalBoughtBtc || '', source: source, asOf: timestamp, note: 'Cumulative BTC bought from OKX BTC-USDT spot fills' },
     { key: 'OKX_BTC_DCA_TotalInvested_USDT', value: summary.totalInvestedUsdt || '', source: source, asOf: timestamp, note: 'Cumulative USDT invested from OKX BTC-USDT spot fills' },
     { key: 'OKX_BTC_DCA_DerivedAvgPrice', value: summary.derivedAvgPrice || '', source: source, asOf: timestamp, note: 'Derived avg cost in USDT/BTC from OKX BTC-USDT spot fills' },

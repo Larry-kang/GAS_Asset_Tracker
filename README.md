@@ -88,6 +88,7 @@ Webhook 回傳仍保留舊版 `buildContext()` payload；如果上述 export she
 目前 OKX DCA / recurring buy 的 read-only 派生資料，也會在同步時自動 upsert 到 `API_Summary_Export`，包含：
 
 - `OKX_BTC_DCA_BuyCount`
+- `OKX_BTC_DCA_IncrementalBuyCount`
 - `OKX_BTC_DCA_TotalBought_BTC`
 - `OKX_BTC_DCA_TotalInvested_USDT`
 - `OKX_BTC_DCA_DerivedAvgPrice`
