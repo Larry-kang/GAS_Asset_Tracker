@@ -301,6 +301,18 @@ function getBinanceBalance() {
       });
     }
 
+    // I. BTC Spot Cost Basis
+    const btcCostRes = typeof syncBinanceBtcSpotCostBasis_ === 'function'
+      ? syncBinanceBtcSpotCostBasis_(ss, baseUrl, apiKey, apiSecret, proxyPassword)
+      : { success: false, status: 'syncBinanceBtcSpotCostBasis_ missing' };
+    SyncManager.registerSourceCheck(result, {
+      name: 'BTC Spot Cost',
+      required: false,
+      success: !!btcCostRes.success,
+      rows: btcCostRes.rowCount || 0,
+      message: btcCostRes.message || btcCostRes.status || ''
+    });
+
     SyncManager.log("INFO", `Collected ${result.assets.length} asset entries from Binance.`, MODULE_NAME);
     return SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
 
@@ -767,4 +779,182 @@ function extractBinanceErrorMessage_(res) {
 
   const compact = raw.replace(/\s+/g, ' ').trim();
   return compact.length > 180 ? `${compact.slice(0, 177)}...` : compact;
+}
+
+function syncBinanceBtcSpotCostBasis_(ss, baseUrl, apiKey, apiSecret, proxyPassword) {
+  try {
+    const sheet = typeof getApiSummaryExportSheet_ === 'function' ? getApiSummaryExportSheet_(ss) : null;
+    if (!sheet) {
+      return { success: false, status: 'API_Summary_Export not found' };
+    }
+
+    const state = typeof readApiSummaryExportState_ === 'function'
+      ? readApiSummaryExportState_(sheet, 'BINANCE_BTC_Spot_')
+      : {};
+    const summary = fetchBinanceBtcSpotTradeSummary_(baseUrl, apiKey, apiSecret, proxyPassword, state);
+    if (!summary.success) return summary;
+
+    const entries = buildBinanceBtcSpotSummaryEntries_(summary);
+    if (typeof upsertApiSummaryExportEntries_ === 'function') {
+      upsertApiSummaryExportEntries_(sheet, entries);
+      if (typeof writeAggregateBtcSpotCostSummary_ === 'function') {
+        writeAggregateBtcSpotCostSummary_(ss, sheet, entries);
+      }
+    }
+
+    return {
+      success: true,
+      rowCount: summary.incrementalBuyCount || 0,
+      message: summary.message || ''
+    };
+  } catch (e) {
+    return { success: false, status: e.message || String(e) };
+  }
+}
+
+function fetchBinanceBtcSpotTradeSummary_(baseUrl, apiKey, apiSecret, proxyPassword, state) {
+  const symbols = ['BTCUSDT', 'BTCFDUSD'];
+  let totalBoughtBtc = 0;
+  let totalInvestedUsdLike = 0;
+  let cumulativeBuyCount = 0;
+  let incrementalBuyCount = 0;
+  let latestTradeId = parseInt(state.LastTradeId || 0, 10) || 0;
+  let latestTradeTime = parseInt(state.LastTradeTime || 0, 10) || 0;
+  const priorBought = parseSummaryNumber_(state.TotalBought_BTC);
+  const priorInvested = parseSummaryNumber_(state.TotalInvested_USDLike);
+  const priorBuyCount = parseInt(state.BuyCount || 0, 10) || 0;
+  const perSymbolStates = {};
+
+  symbols.forEach(symbol => {
+    perSymbolStates[symbol] = {
+      lastTradeId: parseInt(state[`${symbol}_LastTradeId`] || 0, 10) || 0,
+      lastTradeTime: parseInt(state[`${symbol}_LastTradeTime`] || 0, 10) || 0
+    };
+  });
+
+  const perSymbolSummaries = {};
+  symbols.forEach(symbol => {
+    const symbolSummary = fetchBinanceSpotBtcTradesForSymbol_(baseUrl, apiKey, apiSecret, proxyPassword, symbol, perSymbolStates[symbol]);
+    if (!symbolSummary.success) {
+      perSymbolSummaries[symbol] = symbolSummary;
+      return;
+    }
+
+    perSymbolSummaries[symbol] = symbolSummary;
+    totalBoughtBtc += symbolSummary.incrementalBoughtBtc;
+    totalInvestedUsdLike += symbolSummary.incrementalInvestedUsdLike;
+    incrementalBuyCount += symbolSummary.incrementalBuyCount;
+    if (symbolSummary.latestTradeId > latestTradeId) latestTradeId = symbolSummary.latestTradeId;
+    if (symbolSummary.latestTradeTime > latestTradeTime) latestTradeTime = symbolSummary.latestTradeTime;
+  });
+
+  const failedSymbols = symbols.filter(symbol => !(perSymbolSummaries[symbol] && perSymbolSummaries[symbol].success));
+  if (failedSymbols.length > 0) {
+    return {
+      success: false,
+      status: failedSymbols.map(symbol => `${symbol}: ${perSymbolSummaries[symbol] && perSymbolSummaries[symbol].status || 'unknown error'}`).join(' | ')
+    };
+  }
+
+  cumulativeBuyCount = priorBuyCount + incrementalBuyCount;
+  totalBoughtBtc = priorBought + totalBoughtBtc;
+  totalInvestedUsdLike = priorInvested + totalInvestedUsdLike;
+
+  return {
+    success: true,
+    symbols: symbols,
+    perSymbol: perSymbolSummaries,
+    buyCount: cumulativeBuyCount,
+    incrementalBuyCount: incrementalBuyCount,
+    totalBoughtBtc: totalBoughtBtc,
+    totalInvestedUsdLike: totalInvestedUsdLike,
+    derivedAvgPrice: totalBoughtBtc > 0 ? (totalInvestedUsdLike / totalBoughtBtc) : '',
+    lastTradeId: latestTradeId || state.LastTradeId || '',
+    lastTradeTime: latestTradeTime || state.LastTradeTime || '',
+    message: `symbols=${symbols.join(',')}; newRows=${incrementalBuyCount}; totalBoughtBtc=${Number(totalBoughtBtc).toFixed(8)}`
+  };
+}
+
+function fetchBinanceSpotBtcTradesForSymbol_(baseUrl, apiKey, apiSecret, proxyPassword, symbol, symbolState) {
+  const rows = [];
+  const seen = {};
+  const maxPages = 20;
+  let fromId = parseInt(symbolState && symbolState.lastTradeId || 0, 10) || 0;
+  let latestTradeId = fromId;
+  let latestTradeTime = parseInt(symbolState && symbolState.lastTradeTime || 0, 10) || 0;
+
+  for (let page = 0; page < maxPages; page++) {
+    const params = {
+      symbol: symbol,
+      limit: 1000,
+      fromId: fromId
+    };
+    const res = fetchBinanceApi_(baseUrl, '/api/v3/myTrades', params, apiKey, apiSecret, proxyPassword);
+    if (res.code !== "0") {
+      return { success: false, status: `Binance myTrades ${symbol} failed: ${extractBinanceErrorMessage_(res) || res.code}` };
+    }
+
+    const pageRows = Array.isArray(res.data) ? res.data : [];
+    if (!pageRows.length) break;
+
+    pageRows.forEach(row => {
+      const tradeId = parseInt(row.id, 10) || 0;
+      if (!tradeId || seen[tradeId]) return;
+      if (tradeId <= fromId) return;
+      seen[tradeId] = true;
+      if (!row.isBuyer) return;
+      rows.push(row);
+      if (tradeId > latestTradeId) latestTradeId = tradeId;
+      const tradeTime = parseInt(row.time, 10) || 0;
+      if (tradeTime > latestTradeTime) latestTradeTime = tradeTime;
+    });
+
+    if (pageRows.length < 1000) break;
+    const pageMaxId = pageRows.reduce((maxId, row) => {
+      const tradeId = parseInt(row.id, 10) || 0;
+      return tradeId > maxId ? tradeId : maxId;
+    }, fromId);
+    if (pageMaxId <= fromId) break;
+    fromId = pageMaxId;
+  }
+
+  let incrementalBoughtBtc = 0;
+  let incrementalInvestedUsdLike = 0;
+  rows.forEach(row => {
+    incrementalBoughtBtc += parseFloat(row.qty) || 0;
+    incrementalInvestedUsdLike += parseFloat(row.quoteQty) || 0;
+  });
+
+  return {
+    success: true,
+    symbol: symbol,
+    incrementalBuyCount: rows.length,
+    incrementalBoughtBtc: incrementalBoughtBtc,
+    incrementalInvestedUsdLike: incrementalInvestedUsdLike,
+    latestTradeId: latestTradeId,
+    latestTradeTime: latestTradeTime
+  };
+}
+
+function buildBinanceBtcSpotSummaryEntries_(summary) {
+  const timestamp = new Date().toISOString();
+  const entries = [
+    buildSummaryExportEntry_('BINANCE_BTC_Spot_BuyCount', summary.buyCount || '', 'binance_btc_cost_sync', timestamp, 'Cumulative Binance BTC spot buy trade count'),
+    buildSummaryExportEntry_('BINANCE_BTC_Spot_IncrementalBuyCount', summary.incrementalBuyCount || '', 'binance_btc_cost_sync', timestamp, 'New Binance BTC spot buy trades in this sync'),
+    buildSummaryExportEntry_('BINANCE_BTC_Spot_TotalBought_BTC', summary.totalBoughtBtc || '', 'binance_btc_cost_sync', timestamp, 'Cumulative BTC bought from Binance spot trades'),
+    buildSummaryExportEntry_('BINANCE_BTC_Spot_TotalInvested_USDLike', summary.totalInvestedUsdLike || '', 'binance_btc_cost_sync', timestamp, 'Cumulative Binance BTC spot cost across USD-like quote pairs'),
+    buildSummaryExportEntry_('BINANCE_BTC_Spot_DerivedAvgPrice', summary.derivedAvgPrice || '', 'binance_btc_cost_sync', timestamp, 'Derived Binance BTC spot avg price in USD-like quotes'),
+    buildSummaryExportEntry_('BINANCE_BTC_Spot_LastTradeId', summary.lastTradeId || '', 'binance_btc_cost_sync', timestamp, 'Cross-symbol latest Binance trade id'),
+    buildSummaryExportEntry_('BINANCE_BTC_Spot_LastTradeTime', summary.lastTradeTime || '', 'binance_btc_cost_sync', timestamp, 'Cross-symbol latest Binance trade timestamp (ms)'),
+    buildSummaryExportEntry_('BINANCE_BTC_Spot_Symbols', (summary.symbols || []).join(','), 'binance_btc_cost_sync', timestamp, summary.message || '')
+  ];
+
+  (summary.symbols || []).forEach(symbol => {
+    const item = summary.perSymbol && summary.perSymbol[symbol];
+    if (!item) return;
+    entries.push(buildSummaryExportEntry_(`BINANCE_BTC_Spot_${symbol}_LastTradeId`, item.latestTradeId || '', 'binance_btc_cost_sync', timestamp, `Checkpoint for ${symbol}`));
+    entries.push(buildSummaryExportEntry_(`BINANCE_BTC_Spot_${symbol}_LastTradeTime`, item.latestTradeTime || '', 'binance_btc_cost_sync', timestamp, `Checkpoint for ${symbol}`));
+  });
+
+  return entries;
 }

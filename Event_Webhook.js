@@ -486,12 +486,9 @@ function writeOkxDcaSummaryExport_(payload, providedSpreadsheet) {
     const ss = providedSpreadsheet || getPrimarySpreadsheetForDebug_();
     if (!ss) return { success: false, status: 'No spreadsheet context' };
 
-    const sheetName = (Config && Config.SHEET_NAMES && Config.SHEET_NAMES.INVENTORY_EXPORT_SUMMARY)
-      ? Config.SHEET_NAMES.INVENTORY_EXPORT_SUMMARY
-      : 'API_Summary_Export';
-    const sheet = ss.getSheetByName(sheetName);
+    const sheet = getApiSummaryExportSheet_(ss);
     if (!sheet) {
-      LogService.warn(`Sheet "${sheetName}" not found. Skipping OKX DCA summary export write.`, 'Webhook:DebugOKXRecurring');
+      LogService.warn('API_Summary_Export not found. Skipping OKX DCA summary export write.', 'Webhook:DebugOKXRecurring');
       return { success: false, status: 'Summary export sheet not found' };
     }
 
@@ -499,6 +496,7 @@ function writeOkxDcaSummaryExport_(payload, providedSpreadsheet) {
     if (!entries.length) return { success: true, rowCount: 0 };
 
     upsertApiSummaryExportEntries_(sheet, entries);
+    writeAggregateBtcSpotCostSummary_(ss, sheet, entries);
     return { success: true, rowCount: entries.length };
   } catch (e) {
     LogService.error(`Failed to write API_Summary_Export rows for OKX DCA: ${e.message || e}`, 'Webhook:DebugOKXRecurring');
@@ -586,4 +584,136 @@ function mapSummaryExportHeaderIndexes_(headerRow) {
     asOf: normalizedHeaders.indexOf('asof'),
     note: normalizedHeaders.indexOf('note')
   };
+}
+
+function getApiSummaryExportSheet_(ss) {
+  const spreadsheet = ss || getPrimarySpreadsheetForDebug_();
+  if (!spreadsheet) return null;
+
+  const sheetName = (Config && Config.SHEET_NAMES && Config.SHEET_NAMES.INVENTORY_EXPORT_SUMMARY)
+    ? Config.SHEET_NAMES.INVENTORY_EXPORT_SUMMARY
+    : 'API_Summary_Export';
+  return spreadsheet.getSheetByName(sheetName);
+}
+
+function buildApiSummaryExportEntryMap_(sheet, pendingEntries) {
+  const entryMap = {};
+  if (sheet) {
+    const maxColumns = Math.max(sheet.getLastColumn(), 5);
+    const values = sheet.getRange(1, 1, Math.max(sheet.getLastRow(), 1), maxColumns).getValues();
+    const headerIndexes = mapSummaryExportHeaderIndexes_(values[0] || []);
+
+    for (let rowIndex = 1; rowIndex < values.length; rowIndex++) {
+      const row = values[rowIndex];
+      const key = String(row[headerIndexes.key] || '').trim();
+      if (!key) continue;
+      entryMap[key] = {
+        key: key,
+        value: row[headerIndexes.value],
+        source: headerIndexes.source >= 0 ? row[headerIndexes.source] : '',
+        asOf: headerIndexes.asOf >= 0 ? row[headerIndexes.asOf] : '',
+        note: headerIndexes.note >= 0 ? row[headerIndexes.note] : ''
+      };
+    }
+  }
+
+  (pendingEntries || []).forEach(entry => {
+    if (!entry || !entry.key) return;
+    entryMap[entry.key] = entry;
+  });
+
+  return entryMap;
+}
+
+function getApiSummaryExportValue_(entryMap, key) {
+  const entry = entryMap && entryMap[key];
+  return entry ? entry.value : '';
+}
+
+function readApiSummaryExportState_(sheet, keyPrefix) {
+  const entryMap = buildApiSummaryExportEntryMap_(sheet);
+  const prefix = String(keyPrefix || '');
+  const state = {};
+
+  Object.keys(entryMap).forEach(key => {
+    if (!prefix || key.indexOf(prefix) !== 0) return;
+    state[key.slice(prefix.length)] = entryMap[key].value;
+  });
+
+  return state;
+}
+
+function buildSummaryExportEntry_(key, value, source, asOf, note) {
+  return {
+    key: key,
+    value: value,
+    source: source || '',
+    asOf: asOf || '',
+    note: note || ''
+  };
+}
+
+function parseSummaryNumber_(value) {
+  if (value === null || value === undefined || value === '') return 0;
+  const num = parseFloat(value);
+  return isNaN(num) ? 0 : num;
+}
+
+function writeAggregateBtcSpotCostSummary_(ss, sheet, pendingEntries) {
+  const spreadsheet = ss || getPrimarySpreadsheetForDebug_();
+  const exportSheet = sheet || getApiSummaryExportSheet_(spreadsheet);
+  if (!spreadsheet || !exportSheet) return { success: false, status: 'Summary export sheet not found' };
+
+  const entryMap = buildApiSummaryExportEntryMap_(exportSheet, pendingEntries);
+  const usdTwd = lookupUsdTwdRateOrFallback_(spreadsheet);
+
+  const okxBought = parseSummaryNumber_(getApiSummaryExportValue_(entryMap, 'OKX_BTC_DCA_TotalBought_BTC'));
+  const okxCostTwd = parseSummaryNumber_(getApiSummaryExportValue_(entryMap, 'OKX_BTC_DCA_TotalInvested_USDT')) * usdTwd;
+
+  const binanceBought = parseSummaryNumber_(getApiSummaryExportValue_(entryMap, 'BINANCE_BTC_Spot_TotalBought_BTC'));
+  const binanceCostTwd = parseSummaryNumber_(getApiSummaryExportValue_(entryMap, 'BINANCE_BTC_Spot_TotalInvested_USDLike')) * usdTwd;
+
+  const bitoproBought = parseSummaryNumber_(getApiSummaryExportValue_(entryMap, 'BITOPRO_BTC_Spot_TotalBought_BTC'));
+  const bitoproCostTwd = parseSummaryNumber_(getApiSummaryExportValue_(entryMap, 'BITOPRO_BTC_Spot_TotalInvested_TWD'));
+
+  const totalBought = okxBought + binanceBought + bitoproBought;
+  const totalCostTwd = okxCostTwd + binanceCostTwd + bitoproCostTwd;
+  const derivedAvgCostTwd = totalBought > 0 ? (totalCostTwd / totalBought) : '';
+  const timestamp = new Date().toISOString();
+  const coverageNote = buildAllBtcCostCoverageNote_(entryMap);
+
+  const aggregateEntries = [
+    buildSummaryExportEntry_('ALL_BTC_Spot_TotalBought_BTC', totalBought || '', 'btc_cost_aggregate', timestamp, coverageNote),
+    buildSummaryExportEntry_('ALL_BTC_Spot_TotalCost_TWD', totalCostTwd || '', 'btc_cost_aggregate', timestamp, `USD/TWD=${usdTwd}`),
+    buildSummaryExportEntry_('ALL_BTC_Spot_DerivedAvgCost_TWD', derivedAvgCostTwd || '', 'btc_cost_aggregate', timestamp, 'Cross-exchange derived BTC spot cost in TWD'),
+    buildSummaryExportEntry_('ALL_BTC_Spot_USDT_TWD_Rate', usdTwd || '', 'btc_cost_aggregate', timestamp, 'USDT treated as USD for BTC spot cost normalization')
+  ];
+
+  upsertApiSummaryExportEntries_(exportSheet, aggregateEntries);
+  return { success: true, rowCount: aggregateEntries.length };
+}
+
+function buildAllBtcCostCoverageNote_(entryMap) {
+  const notes = [];
+  const bitoproWindow = getApiSummaryExportValue_(entryMap, 'BITOPRO_BTC_Spot_HistoryWindowDays');
+  if (bitoproWindow) {
+    notes.push(`BitoPro limited to latest ${bitoproWindow} days via API`);
+  }
+  const binanceSymbols = getApiSummaryExportValue_(entryMap, 'BINANCE_BTC_Spot_Symbols');
+  if (binanceSymbols) {
+    notes.push(`Binance symbols=${binanceSymbols}`);
+  }
+  return notes.join('; ');
+}
+
+function lookupUsdTwdRateOrFallback_(ss) {
+  try {
+    if (typeof SettingsMatrixRepo !== 'undefined' && SettingsMatrixRepo.lookupRate) {
+      const lookup = SettingsMatrixRepo.lookupRate(ss, 'USD', 'TWD');
+      const rate = parseSummaryNumber_(lookup && lookup.value);
+      if (rate > 0) return rate;
+    }
+  } catch (e) { }
+
+  return 32;
 }

@@ -187,4 +187,91 @@ if (typeof require === 'function') {
     assert.equal(entries[7].key, 'OKX_BTC_DCA_SyncMode');
     assert.equal(entries[7].value, 'incremental');
   });
+
+  test('API summary export state reader strips prefixes correctly', () => {
+    const repoRoot = path.resolve(__dirname, '..');
+    const context = loadScripts([
+      path.join(repoRoot, 'Event_Webhook.js')
+    ], {
+      JSON,
+      Date,
+      console
+    });
+
+    const fakeSheet = {
+      getLastColumn() { return 5; },
+      getLastRow() { return 4; },
+      getRange() {
+        return {
+          getValues() {
+            return [
+              ['key', 'value', 'source', 'asOf', 'note'],
+              ['BINANCE_BTC_Spot_LastTradeId', '123', '', '', ''],
+              ['BINANCE_BTC_Spot_BTCUSDT_LastTradeTime', '456', '', '', ''],
+              ['OKX_BTC_DCA_LastFillBillId', 'abc', '', '', '']
+            ];
+          }
+        };
+      }
+    };
+
+    context.fakeSheet = fakeSheet;
+    const state = evaluateInContext("readApiSummaryExportState_(fakeSheet, 'BINANCE_BTC_Spot_')", context);
+    assert.equal(state.LastTradeId, '123');
+    assert.equal(state.BTCUSDT_LastTradeTime, '456');
+    assert.equal(state.LastFillBillId, undefined);
+  });
+
+  test('Binance and BitoPro BTC summary entry builders produce stable keys', () => {
+    const repoRoot = path.resolve(__dirname, '..');
+    const context = loadScripts([
+      path.join(repoRoot, 'Event_Webhook.js'),
+      path.join(repoRoot, 'Sync_Binance.js'),
+      path.join(repoRoot, 'Sync_BitoPro.js')
+    ], {
+      JSON,
+      Date,
+      console
+    });
+
+    const binanceEntries = evaluateInContext(`
+      buildBinanceBtcSpotSummaryEntries_({
+        buyCount: 12,
+        incrementalBuyCount: 2,
+        totalBoughtBtc: 0.1234,
+        totalInvestedUsdLike: 8000,
+        derivedAvgPrice: 64829,
+        lastTradeId: 99,
+        lastTradeTime: 1234567890,
+        symbols: ['BTCUSDT', 'BTCFDUSD'],
+        perSymbol: {
+          BTCUSDT: { latestTradeId: 88, latestTradeTime: 1234500000 },
+          BTCFDUSD: { latestTradeId: 99, latestTradeTime: 1234567890 }
+        },
+        message: 'ok'
+      })
+    `, context);
+    assert.equal(binanceEntries[0].key, 'BINANCE_BTC_Spot_BuyCount');
+    assert.equal(binanceEntries[1].key, 'BINANCE_BTC_Spot_IncrementalBuyCount');
+    assert.equal(binanceEntries[7].key, 'BINANCE_BTC_Spot_Symbols');
+    assert.equal(binanceEntries[8].key, 'BINANCE_BTC_Spot_BTCUSDT_LastTradeId');
+
+    const bitoproEntries = evaluateInContext(`
+      buildBitoProBtcSpotSummaryEntries_({
+        buyCount: 5,
+        incrementalBuyCount: 1,
+        totalBoughtBtc: 0.05,
+        totalInvestedTwd: 100000,
+        derivedAvgPrice: 2000000,
+        lastTradeId: '77',
+        lastTradeTime: 1234567890,
+        pair: 'btc_twd',
+        historyWindowDays: 90,
+        message: 'ok'
+      })
+    `, context);
+    assert.equal(bitoproEntries[0].key, 'BITOPRO_BTC_Spot_BuyCount');
+    assert.equal(bitoproEntries[3].key, 'BITOPRO_BTC_Spot_TotalInvested_TWD');
+    assert.equal(bitoproEntries[8].key, 'BITOPRO_BTC_Spot_HistoryWindowDays');
+  });
 }

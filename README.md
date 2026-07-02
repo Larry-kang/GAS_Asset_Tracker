@@ -96,6 +96,20 @@ Webhook 回傳仍保留舊版 `buildContext()` payload；如果上述 export she
 - `OKX_BTC_DCA_LastFillTime`
 - `OKX_BTC_DCA_SyncMode`
 
+此外，Binance / BitoPro 的 BTC 現貨買入成本也可同步寫入 `API_Summary_Export`，並進一步彙總為跨交易所口徑：
+
+- `BINANCE_BTC_Spot_*`
+- `BITOPRO_BTC_Spot_*`
+- `ALL_BTC_Spot_TotalBought_BTC`
+- `ALL_BTC_Spot_TotalCost_TWD`
+- `ALL_BTC_Spot_DerivedAvgCost_TWD`
+
+目前實作說明：
+
+- Binance 先追蹤 `BTCUSDT`、`BTCFDUSD` 兩個 USD-like 現貨交易對。
+- Binance 的 USD-like 成本在 aggregate 階段以 `USD/TWD` 近似換算。
+- BitoPro 私有 trade history API 僅提供最近 90 天資料，因此 `BITOPRO_BTC_Spot_*` 與跨交易所 aggregate 會保留 coverage note。
+
 ## 自動化流程
 
 `runAutomationMaster()` 是主要排程入口。
