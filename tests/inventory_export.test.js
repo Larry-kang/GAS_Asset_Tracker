@@ -139,6 +139,42 @@ if (typeof require === 'function') {
     assert.equal(bundle.positions[1].account, 'IBKR');
   });
 
+  test('InventoryExportRepo preserves displayed ticker text while keeping numeric fields typed', () => {
+    const repoRoot = path.resolve(__dirname, '..');
+    const context = loadScripts([
+      path.join(repoRoot, 'Repo_InventoryExport.js')
+    ], {
+      JSON,
+      Date,
+      console
+    });
+    const repo = evaluateInContext('InventoryExportRepo', context);
+
+    const bundle = repo.buildExportBundleFromTables_(
+      [['key', 'value']],
+      [
+        ['ticker', 'quantity', 'valueTwd', 'isLeveragedETF'],
+        [713, 1000, 60550, false],
+        ['00670L', 950, 186580, true]
+      ],
+      {
+        positionsDisplayValues: [
+          ['ticker', 'quantity', 'valueTwd', 'isLeveragedETF'],
+          ['00713', '1,000', 'NT$60,550', 'FALSE'],
+          ['00670L', '950', 'NT$186,580', 'TRUE']
+        ]
+      }
+    );
+
+    assert.equal(bundle.positions[0].ticker, '00713');
+    assert.equal(bundle.positions[0].quantity, 1000);
+    assert.equal(bundle.positions[0].valueTwd, 60550);
+    assert.equal(bundle.positions[0].isLeveragedETF, false);
+    assert.equal(bundle.positions[1].ticker, '00670L');
+    assert.equal(bundle.positions[1].quantity, 950);
+    assert.equal(bundle.positions[1].isLeveragedETF, true);
+  });
+
   test('OKX DCA summary export helpers normalize headers and build stable rows', () => {
     const repoRoot = path.resolve(__dirname, '..');
     const context = loadScripts([

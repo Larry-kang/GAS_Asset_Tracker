@@ -12,17 +12,19 @@ const InventoryExportRepo = {
 
         const summaryValues = this.getOptionalSheetValues_(ss, summarySheetName);
         const positionsValues = this.getOptionalSheetValues_(ss, positionsSheetName);
+        const positionsDisplayValues = this.getOptionalSheetDisplayValues_(ss, positionsSheetName);
 
         return this.buildExportBundleFromTables_(summaryValues, positionsValues, {
             summarySheetName: summarySheetName,
-            positionsSheetName: positionsSheetName
+            positionsSheetName: positionsSheetName,
+            positionsDisplayValues: positionsDisplayValues
         });
     },
 
     buildExportBundleFromTables_: function (summaryValues, positionsValues, metadata) {
         const meta = metadata || {};
         const summaryRows = this.parseSummaryRows_(summaryValues);
-        const positions = this.parsePositionRows_(positionsValues);
+        const positions = this.parsePositionRows_(positionsValues, meta.positionsDisplayValues);
         const available = summaryRows.length > 0 || positions.length > 0;
         const summary = {};
 
@@ -53,17 +55,23 @@ const InventoryExportRepo = {
         return rows.records.filter(row => this.normalizeText_(row.key));
     },
 
-    parsePositionRows_: function (values) {
-        const rows = this.parseTable_(values);
+    parsePositionRows_: function (values, displayValues) {
+        const rows = this.parseTable_(values, {
+            displayValues: displayValues,
+            preserveDisplayedHeaders: ["ticker"]
+        });
         if (!rows) return [];
 
         this.assertRequiredHeaders_(rows.headers, ["ticker"], "position export");
         return rows.records.filter(row => this.normalizeText_(row.ticker));
     },
 
-    parseTable_: function (values) {
+    parseTable_: function (values, options) {
         if (!values || values.length === 0) return null;
 
+        const opts = options || {};
+        const displayValues = opts.displayValues || [];
+        const preserveDisplayedHeaders = opts.preserveDisplayedHeaders || [];
         const rawHeaders = values[0].map(value => this.normalizeText_(value));
         const canonicalHeaders = rawHeaders.map(value => this.toCanonicalHeader_(value));
         const records = [];
@@ -76,7 +84,13 @@ const InventoryExportRepo = {
             for (let colIndex = 0; colIndex < canonicalHeaders.length; colIndex++) {
                 const header = canonicalHeaders[colIndex];
                 if (!header) continue;
-                record[header] = this.coerceValue_(row[colIndex]);
+
+                const displayRow = displayValues[rowIndex] || [];
+                if (preserveDisplayedHeaders.indexOf(header) >= 0 && displayRow[colIndex] != null) {
+                    record[header] = this.normalizeText_(displayRow[colIndex]);
+                } else {
+                    record[header] = this.coerceValue_(row[colIndex]);
+                }
             }
             records.push(record);
         }
@@ -99,6 +113,13 @@ const InventoryExportRepo = {
         const sheet = ss.getSheetByName(sheetName);
         if (!sheet) return null;
         return sheet.getDataRange().getValues();
+    },
+
+    getOptionalSheetDisplayValues_: function (ss, sheetName) {
+        if (!sheetName) return null;
+        const sheet = ss.getSheetByName(sheetName);
+        if (!sheet) return null;
+        return sheet.getDataRange().getDisplayValues();
     },
 
     toCanonicalHeader_: function (value) {
