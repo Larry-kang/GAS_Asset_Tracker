@@ -105,6 +105,42 @@ if (typeof require === 'function') {
     assert.equal(payload.data.inventoryExport.positions[0].account, 'OKX');
   });
 
+  test('strategic report preview is read-only and returns the rendered stock strategy', () => {
+    const repoRoot = path.resolve(__dirname, '..');
+    const sandbox = createWebhookSandbox();
+    sandbox.RULES = [{
+      condition() { return true; },
+      getAction() {
+        return { level: '[結算]', message: '待交割', action: '停止新增股票操作' };
+      }
+    }];
+    sandbox.generatePortfolioSnapshot = function () {
+      return '[股票有效曝險]\n- 名目曝險: 691,600 TWD';
+    };
+    sandbox.buildFreshContext = function () {
+      return {
+        stockStrategy: {
+          grossExposureTwd: 691600,
+          debtStatus: 'REPAYMENT_PENDING',
+          settlementStatus: 'TRADE_PENDING'
+        }
+      };
+    };
+    sandbox.Config = { VERSION: 'v24.15' };
+
+    const context = loadScripts([
+      path.join(repoRoot, 'Event_Webhook.js')
+    ], sandbox);
+    const response = context.handleStrategicReportPreview({});
+    const payload = JSON.parse(response.getContent());
+
+    assert.equal(payload.status, 'success');
+    assert.equal(payload.version, 'v24.15');
+    assert.equal(payload.alerts.length, 1);
+    assert.equal(payload.stockStrategy.grossExposureTwd, 691600);
+    assert.match(payload.snapshot, /股票有效曝險/);
+  });
+
   test('InventoryExportRepo parses row-based summary and header-driven positions without hardcoding extra fields', () => {
     const repoRoot = path.resolve(__dirname, '..');
     const context = loadScripts([

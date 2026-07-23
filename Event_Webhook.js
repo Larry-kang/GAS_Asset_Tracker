@@ -39,6 +39,9 @@ function doPost(e) {
       case 'get_quick_status':
         return handleQuickSummary(data);
 
+      case 'get_strategic_report_preview':
+        return handleStrategicReportPreview(data);
+
       case 'debug_okx_recurring':
         return handleDebugOkxRecurring(data);
 
@@ -230,10 +233,51 @@ function handleQuickSummary(data) {
     timestamp: new Date().toISOString(),
     version: Config.VERSION
   };
+  if (ctx.stockStrategy) {
+    summary.stockStrategy = {
+      marketValueTwd: ctx.stockStrategy.marketValueTwd,
+      grossExposureTwd: ctx.stockStrategy.grossExposureTwd,
+      exposureRatio: ctx.stockStrategy.exposureRatio,
+      taiwanExposureRatio: ctx.stockStrategy.taiwanExposureRatio,
+      nasdaqExposureRatio: ctx.stockStrategy.nasdaqExposureRatio,
+      debtStatus: ctx.stockStrategy.debtStatus,
+      settlementStatus: ctx.stockStrategy.settlementStatus
+    };
+  }
 
   return ContentService.createTextOutput(JSON.stringify({
     status: "success",
     data: summary
+  }));
+}
+
+/**
+ * [ReadOnly Debug] Returns the exact strategic snapshot without broadcasting
+ * or writing back to the spreadsheet.
+ */
+function handleStrategicReportPreview(data) {
+  if (typeof buildContext !== 'function' || typeof generatePortfolioSnapshot !== 'function') {
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "error",
+      msg: "Strategic report engine missing"
+    }));
+  }
+
+  const context = typeof buildFreshContext === 'function' ? buildFreshContext() : buildContext();
+  const alerts = [];
+  RULES.forEach(function (rule) {
+    if (!rule.condition(context)) return;
+    const action = rule.getAction(context);
+    if (action) alerts.push(action);
+  });
+
+  return ContentService.createTextOutput(JSON.stringify({
+    status: "success",
+    timestamp: new Date().toISOString(),
+    version: Config.VERSION,
+    alerts: alerts,
+    snapshot: generatePortfolioSnapshot(context),
+    stockStrategy: context.stockStrategy || null
   }));
 }
 

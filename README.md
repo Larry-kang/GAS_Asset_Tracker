@@ -85,6 +85,21 @@ Webhook 回傳仍保留舊版 `buildContext()` payload；如果上述 export she
 
 這樣未來新增像 `BTC_Spot_Quantity`、`IBIT_Quantity`、`IBIT_BTC_Per_Share` 之類欄位，原則上只要改 sheet formula，不必再改 webhook code。
 
+股票有效曝險由 `API_Position_Export` 的 `region`, `strategyRole`,
+`exposureMultiplier`, `effectiveExposureTwd`, `settlementStatus` 與
+`pledgeStatus` 驅動。`Strategy_Config` 透過 `API_Summary_Export` 提供：
+
+- `StockTargetExposureRatio`：股票名目曝險相對策略本金的目標倍數。
+- `StockCapitalBaseTWD`：曝險倍數的分母；未提供時報告顯示 N/A，不自行推估。
+- `TaiwanTargetExposureWeight` / `NasdaqTargetExposureWeight`：區域名目曝險目標。
+- `CashBufferTWD`：不可投入的台幣現金底線。
+- `StockDebtStatus`：股票外部負債狀態，使用 `ACTIVE`, `REPAYMENT_PENDING`, `SETTLED`。
+- `OriginalCoreTicker` / `OriginalCoreMinPreSplitEquivalentQty`：原型 ETF 與最低保留數量。
+- `CorporateAction00662Status`：00662 分割等公司行動狀態。
+
+持倉的 `settlementStatus` 使用 `TRADE_PENDING` 或 `SETTLED`；這與
+`StockDebtStatus` 不同，前者描述 T+2 交割，後者描述質押本金與利息是否已清償。
+
 目前 OKX DCA / recurring buy 的 read-only 派生資料，也會在同步時自動 upsert 到 `API_Summary_Export`，包含：
 
 - `OKX_BTC_DCA_BuyCount`
@@ -223,6 +238,7 @@ Script Properties 常見類別：
 - `updateAllFxRates()`：更新匯率矩陣。
 - `syncCurrencyPairs()`：掃描並補齊必要 currency pair。
 - `runStrategicMonitor()`：產生策略報告。
+- webhook action `get_strategic_report_preview`：唯讀回傳即時戰略報告、alerts 與股票曝險，不發送通知、不寫回試算表。
 - `getBinanceBalance()`、`getOkxBalance()`、`getBitgetBalance()`、`getBybitBalance()`、`getPionexBalance()`、`getBitoProBalance()`：交易所同步入口。
 
 常用試算表 custom function：

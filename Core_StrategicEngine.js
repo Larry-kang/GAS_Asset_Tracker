@@ -321,6 +321,174 @@ function buildCryptoLtvGuardrailAction_(btcRegime) {
   return btcRegime.guardrailAction;
 }
 
+function buildStockExposureStrategy_(inventoryExport) {
+  if (!inventoryExport || !inventoryExport.available) return null;
+
+  const summary = inventoryExport.summary || {};
+  const rawPositions = Array.isArray(inventoryExport.positions) ? inventoryExport.positions : [];
+  const positions = rawPositions
+    .filter(function (position) {
+      const region = String((position && position.region) || "").trim().toUpperCase();
+      const role = String((position && position.strategyRole) || "").trim();
+      return (region === "TW" || region === "NASDAQ") && role !== "";
+    })
+    .map(function (position) {
+      const marketValue = toFiniteNumber_(position.valueTwd) || 0;
+      const multiplier = toFiniteNumber_(position.exposureMultiplier) || 1;
+      const exportedExposure = toFiniteNumber_(position.effectiveExposureTwd);
+      return {
+        ticker: String(position.ticker || "").trim(),
+        quantity: toFiniteNumber_(position.quantity) || 0,
+        marketValueTwd: marketValue,
+        exposureMultiplier: multiplier,
+        effectiveExposureTwd: exportedExposure === null ? marketValue * multiplier : exportedExposure,
+        region: String(position.region || "").trim().toUpperCase(),
+        strategyRole: String(position.strategyRole || "").trim(),
+        settlementStatus: String(position.settlementStatus || "UNKNOWN").trim().toUpperCase(),
+        pledgeStatus: String(position.pledgeStatus || "UNKNOWN").trim().toUpperCase()
+      };
+    });
+
+  if (positions.length === 0) return null;
+
+  const marketValueTwd = positions.reduce(function (sum, position) {
+    return sum + position.marketValueTwd;
+  }, 0);
+  const grossExposureTwd = positions.reduce(function (sum, position) {
+    return sum + position.effectiveExposureTwd;
+  }, 0);
+  const taiwanExposureTwd = positions
+    .filter(function (position) { return position.region === "TW"; })
+    .reduce(function (sum, position) { return sum + position.effectiveExposureTwd; }, 0);
+  const nasdaqExposureTwd = positions
+    .filter(function (position) { return position.region === "NASDAQ"; })
+    .reduce(function (sum, position) { return sum + position.effectiveExposureTwd; }, 0);
+  const pendingPosition = positions.find(function (position) {
+    return position.settlementStatus !== "SETTLED";
+  });
+  const stockCapitalBaseTwd = toFiniteNumber_(summary.StockCapitalBaseTWD);
+  const targetExposureRatio = toFiniteNumber_(summary.StockTargetExposureRatio) || 1;
+  const targetTaiwanRatio = toFiniteNumber_(summary.TaiwanTargetExposureWeight) || 0;
+  const targetNasdaqRatio = toFiniteNumber_(summary.NasdaqTargetExposureWeight) || 0;
+  const taiwanRatio = grossExposureTwd > 0 ? taiwanExposureTwd / grossExposureTwd : 0;
+  const nasdaqRatio = grossExposureTwd > 0 ? nasdaqExposureTwd / grossExposureTwd : 0;
+  const debtStatus = String(summary.StockDebtStatus || "UNKNOWN").trim().toUpperCase();
+  const settlementStatus = pendingPosition ? pendingPosition.settlementStatus : "SETTLED";
+
+  return {
+    source: "inventory_export",
+    positions: positions,
+    marketValueTwd: marketValueTwd,
+    grossExposureTwd: grossExposureTwd,
+    stockCapitalBaseTwd: stockCapitalBaseTwd !== null && stockCapitalBaseTwd > 0
+      ? stockCapitalBaseTwd
+      : null,
+    exposureRatio: stockCapitalBaseTwd !== null && stockCapitalBaseTwd > 0
+      ? grossExposureTwd / stockCapitalBaseTwd
+      : null,
+    targetExposureRatio: targetExposureRatio,
+    taiwanExposureTwd: taiwanExposureTwd,
+    nasdaqExposureTwd: nasdaqExposureTwd,
+    taiwanExposureRatio: taiwanRatio,
+    nasdaqExposureRatio: nasdaqRatio,
+    targetTaiwanExposureRatio: targetTaiwanRatio,
+    targetNasdaqExposureRatio: targetNasdaqRatio,
+    taiwanDeviationPct: (taiwanRatio - targetTaiwanRatio) * 100,
+    nasdaqDeviationPct: (nasdaqRatio - targetNasdaqRatio) * 100,
+    cashBufferTwd: toFiniteNumber_(summary.CashBufferTWD) || 0,
+    debtStatus: debtStatus,
+    settlementStatus: settlementStatus,
+    isPending: debtStatus !== "SETTLED" || settlementStatus !== "SETTLED",
+    originalCoreTicker: String(summary.OriginalCoreTicker || "").trim(),
+    originalCoreMinPreSplitEquivalentQty:
+      toFiniteNumber_(summary.OriginalCoreMinPreSplitEquivalentQty) || 0,
+    corporateActionStatus:
+      String(summary.CorporateAction00662Status || "UNKNOWN").trim().toUpperCase()
+  };
+}
+
+function buildStockExposureAlert_(stockStrategy) {
+  if (!stockStrategy) return null;
+
+  const marketValue = Math.round(stockStrategy.marketValueTwd).toLocaleString();
+  const grossExposure = Math.round(stockStrategy.grossExposureTwd).toLocaleString();
+  const regionMessage =
+    "台灣 " + formatPercent_(stockStrategy.taiwanExposureRatio, 1) +
+    " / NASDAQ " + formatPercent_(stockStrategy.nasdaqExposureRatio, 1);
+
+  if (stockStrategy.isPending) {
+    return {
+      level: "[結算] 股票重整待完成",
+      message:
+        "股票市值 " + marketValue + " TWD，名目曝險 " + grossExposure +
+        " TWD；" + regionMessage + "。交割 " + stockStrategy.settlementStatus +
+        " / 股票負債 " + stockStrategy.debtStatus + "。",
+      action:
+        "暫停新增股票操作與股票質押；等待 T+2、實際自由現金及股票負債歸零後再評估區域微調。"
+    };
+  }
+
+  const regionalDrift = Math.max(
+    Math.abs(stockStrategy.taiwanDeviationPct),
+    Math.abs(stockStrategy.nasdaqDeviationPct)
+  );
+  let action = "維持目前名目曝險，不新增股票質押。";
+  if (regionalDrift >= 5) {
+    action =
+      "區域偏差超過 5 個百分點；待 " + (stockStrategy.originalCoreTicker || "原型 ETF") +
+      " 公司行動完成後，再以新增資金或小額換倉向目標比例調整。";
+  }
+
+  return {
+    level: "[戰略] 股票有效曝險監控",
+    message:
+      "股票市值 " + marketValue + " TWD，名目曝險 " + grossExposure +
+      " TWD；" + regionMessage + "。",
+    action: action
+  };
+}
+
+function buildStockExposureSnapshot_(stockStrategy) {
+  if (!stockStrategy) return "";
+
+  let s = "\n[股票有效曝險]\n";
+  stockStrategy.positions.forEach(function (position) {
+    s +=
+      "- " + position.ticker + ": " + position.quantity.toLocaleString() +
+      " 股 | 市值 " + Math.round(position.marketValueTwd).toLocaleString() +
+      " | " + position.exposureMultiplier.toFixed(1) + "x => " +
+      Math.round(position.effectiveExposureTwd).toLocaleString() + " TWD\n";
+  });
+  s += "- 股票市值: " + Math.round(stockStrategy.marketValueTwd).toLocaleString() + " TWD\n";
+  s += "- 名目曝險: " + Math.round(stockStrategy.grossExposureTwd).toLocaleString() + " TWD\n";
+  if (stockStrategy.exposureRatio === null) {
+    s += "- 曝險倍數: N/A（Strategy_Config 缺少 StockCapitalBaseTWD）\n";
+  } else {
+    s +=
+      "- 曝險倍數: " + stockStrategy.exposureRatio.toFixed(3) + "x" +
+      " / 目標 " + stockStrategy.targetExposureRatio.toFixed(2) + "x\n";
+  }
+  s +=
+    "- 區域: 台灣 " + formatPercent_(stockStrategy.taiwanExposureRatio, 2) +
+    "（目標 " + formatPercent_(stockStrategy.targetTaiwanExposureRatio, 0) +
+    "，偏差 " + stockStrategy.taiwanDeviationPct.toFixed(2) + "pp）" +
+    " | NASDAQ " + formatPercent_(stockStrategy.nasdaqExposureRatio, 2) +
+    "（目標 " + formatPercent_(stockStrategy.targetNasdaqExposureRatio, 0) +
+    "，偏差 " + stockStrategy.nasdaqDeviationPct.toFixed(2) + "pp）\n";
+  s +=
+    "- 狀態: 交割 " + stockStrategy.settlementStatus +
+    " | 股票負債 " + stockStrategy.debtStatus +
+    " | 現金底線 " + Math.round(stockStrategy.cashBufferTwd).toLocaleString() + " TWD\n";
+  if (stockStrategy.originalCoreTicker) {
+    s +=
+      "- 原型核心: " + stockStrategy.originalCoreTicker +
+      "，最低保留分割前等值 " +
+      stockStrategy.originalCoreMinPreSplitEquivalentQty.toLocaleString() +
+      " 股 | 公司行動 " + stockStrategy.corporateActionStatus + "\n";
+  }
+  return s;
+}
+
 const RULES = [
   {
     name: "ATH Breakout Monitor",
@@ -456,7 +624,9 @@ const RULES = [
         return {
           level: "[配置] 資金流向建議 (防禦護城河)",
           message: "BTC 總佔比高於 80%。部位過重。",
-          action: "將盈餘 100% 買入 00713 (高股息 ETF) 以強化信用基底。"
+          action: context.stockStrategy
+            ? "先保留現金；僅在股票名目曝險低於目標且結算完成時，依台灣/NASDAQ 區域缺口補足。"
+            : "將盈餘轉入股票信用基底或流動性，避免繼續提高 BTC 集中度。"
         };
       }
 
@@ -466,7 +636,11 @@ const RULES = [
   {
     name: "Maintenance Ratio Monitor",
     phase: "All",
-    condition: function (context) { return context.indicators.isValid && context.indicators.maintenanceRatio < Config.STRATEGIC.PLEDGE_RATIO_SAFE; },
+    condition: function (context) {
+      return !context.stockStrategy &&
+        context.indicators.isValid &&
+        context.indicators.maintenanceRatio < Config.STRATEGIC.PLEDGE_RATIO_SAFE;
+    },
     getAction: function (context) {
       const ratio = context.indicators.maintenanceRatio;
       if (ratio <= Config.STRATEGIC.PLEDGE_RATIO_CRITICAL) {
@@ -557,88 +731,39 @@ const RULES = [
   {
     name: "Taiwan Stock Leverage Advisor",
     phase: "All",
-    condition: function (context) { return context.market.twWeightedMM !== null; },
+    condition: function (context) {
+      return !!context.stockStrategy || context.market.twWeightedMM !== null;
+    },
     getAction: function (context) {
+      if (context.stockStrategy) {
+        return buildStockExposureAlert_(context.stockStrategy);
+      }
+
       const mm = context.market.twWeightedMM;
       let zone = "", action = "", level = "[戰略] 台股指引";
-      let targetLoan = 0;
 
-      // V5.0 Taiwan Stock Matrix
       if (mm > 1.35) {
         zone = "極度泡沫 (Bubble)";
-        action = "及時鎖利: 清償債務，僅保留象徵性負債。Target Loan < 10%";
-        targetLoan = 0.1;
+        action = "停止加碼並檢查股票名目曝險；不新增股票質押。";
       } else if (mm > 1.15) {
         zone = "高位警戒 (Warning)";
-        action = "停止增貸: 暫停投入，開始用薪資還本。Target Loan 15-20%";
-        targetLoan = 0.2;
+        action = "暫停提高股票曝險，等待估值或區域配置回到目標。";
       } else if (mm > 1.00) {
         zone = "中性平衡 (Neutral)";
-        action = "穩定領息: 維持現狀。股息優先還息。Target Loan 30%";
-        targetLoan = 0.3;
+        action = "維持目前股票曝險；以現金流和區域偏差管理，不使用外部股票槓桿。";
       } else if (mm > 0.85) {
         zone = "低位部屬 (Accumulate)";
-        action = "分批投入: 動員額度分批買入 00662。Target Loan 40-50%";
-        targetLoan = 0.5;
+        action = "僅用自由現金分批補足低配區域，不新增股票質押。";
       } else {
         zone = "深水炸彈 (Deep Value)";
-        action = "Full Mobilization: 借足額度執行 Aggressive Buy。Target Loan 60%";
+        action = "先確認現金底線與 Crypto LTV，再用自由現金階梯式提高股票曝險。";
         level = "[機會] 台股黃金坑";
-        targetLoan = 0.6;
-      }
-
-      // Check if Loan Ratio is too high vs Target
-      const stockGroup = context.pledgeGroups.find(g => g.name.toLowerCase().includes("stock"));
-      const currentLoanRatio = stockGroup ? (1 / stockGroup.ratio) : 0;
-
-      let warning = "";
-      if (currentLoanRatio > (targetLoan + 0.1)) {
-        warning = "\n⚠️ 當前借貸比 (" + (currentLoanRatio * 100).toFixed(0) + "%) 顯著高於目標，建議去槓桿。";
-      }
-
-      // [NEW v24.14] Collateral Rebalancing Monitor (00713 vs 00662)
-      // Only runs if we have prices and portfolio data
-      if (context.market.price713 > 0 && context.market.price662 > 0) {
-        const p713 = context.portfolioSummary['00713'] || 0;
-        // Handle 00662 alias (Share name vs Ticker)
-        const p662 = context.portfolioSummary['00662'] || context.portfolioSummary['00662_TW'] || 0;
-        const totalPledged = p713 + p662;
-
-        if (totalPledged > 0) {
-          const ratio713 = p713 / totalPledged;
-          // Target: 67% (2/3) for 00713
-          // Threshold: +/- 5% deviation
-          if (ratio713 < 0.62) {
-            // Deficit in 00713
-            const targetValue713 = totalPledged * 0.67;
-            const deficit = targetValue713 - p713;
-            const sharesNeed = Math.ceil(deficit / context.market.price713);
-
-            warning += "\n⚠️ 質押失衡: 00713 佔比過低 (" + (ratio713 * 100).toFixed(0) + "%).\n";
-            warning += "   建議補强: 00713 (" + sharesNeed.toLocaleString() + " 股)";
-
-            if (sharesNeed >= 1000) warning += " ✅ 滿一張可質押";
-            else warning += " ⏳ 未滿一張 (" + sharesNeed + " < 1000)";
-
-          } else if (ratio713 > 0.72) {
-            // Surplus in 00713 (Deficit in 00662)
-            const targetValue662 = totalPledged * 0.33;
-            const deficit = targetValue662 - p662;
-            const sharesNeed = Math.ceil(deficit / context.market.price662);
-
-            warning += "\n⚠️ 質押失衡: 00662 佔比過低 (" + ((1 - ratio713) * 100).toFixed(0) + "%).\n";
-            warning += "   建議補强: 00662 (" + sharesNeed.toLocaleString() + " 股)";
-
-            if (sharesNeed >= 1000) warning += " ✅ 滿一張可質押";
-            else warning += " ⏳ 未滿一張 (" + sharesNeed + " < 1000)";
-          }
-        }
       }
 
       return {
         level: level + " (" + zone + ")",
         message: "加權 MM: " + mm.toFixed(2) + " (713: " + context.market.twMMParts.mm713.toFixed(2) + " | 662: " + context.market.twMMParts.mm662.toFixed(2) + ")",
-        action: action + warning
+        action: action
       };
     }
   }
@@ -868,6 +993,15 @@ function buildContext() {
 
   // Phase 2: 資產/債務分離與聚合
   const portfolioSummary = aggregatePortfolio(rawPortfolio);
+  let inventoryExport = null;
+  try {
+    inventoryExport = typeof getInventoryExportBundle_ === "function"
+      ? getInventoryExportBundle_()
+      : null;
+  } catch (e) {
+    LogService.warn("Inventory export unavailable: " + e.toString(), "StrategicEngine");
+  }
+  const stockStrategy = buildStockExposureStrategy_(inventoryExport);
 
   // 總資產
   const totalGrossAssets = Object.values(portfolioSummary).reduce((sum, val) => sum + (val > 0 ? val : 0), 0);
@@ -1009,7 +1143,9 @@ function buildContext() {
     totalGrossAssets: totalGrossAssets,
     netEntityValue: netEntityValue,
     rebalanceTargets: targets,
-    reserve: liquidity
+    reserve: liquidity,
+    inventoryExport: inventoryExport,
+    stockStrategy: stockStrategy
   };
 }
 
@@ -1274,8 +1410,8 @@ function buildRebalanceExecutionHint_(group, action, market, overweightStates, u
   if (groupId === 'L2') {
     return action === 'ADD'
       ? (preferredSource
-        ? `先釋放 ${preferredSource}，再以 00713 / 00662 / QQQ 補強信用基底`
-        : '以 00713 / 00662 / QQQ 補強信用基底')
+        ? `先釋放 ${preferredSource}，再依股票名目曝險與區域缺口補強`
+        : '依股票名目曝險與台灣/NASDAQ 區域缺口補強')
       : (preferredDestination
         ? `視評價與比重調節，將資金優先回流至 ${preferredDestination}`
         : '視評價與比重調節，將資金回流至 L1 或 L3');
@@ -1621,6 +1757,8 @@ function generatePortfolioSnapshot(context) {
       s += "- " + group.name + ": " + group.ratio.toFixed(2) + " (LTV " + groupLTV + "%)" + limitInfo + " " + status + "\n";
     });
   }
+
+  s += buildStockExposureSnapshot_(context.stockStrategy);
 
   s += "\n[III] 資產配置 (ASSET ALLOCATION)\n";
   const groupsToDisplay = context.assetGroups || Config.ASSET_GROUPS;

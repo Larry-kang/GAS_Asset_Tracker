@@ -4,7 +4,7 @@
  */
 const Config = {
     SYSTEM_NAME: "SAP - Sovereign Asset Protocol",
-    VERSION: "v24.14", // V5.0 TW Stock Rebalancing & Price Feed
+    VERSION: "v24.15", // Inventory-driven stock exposure monitoring
 
     // Feature Flags
     FEATURES: {
@@ -36,8 +36,8 @@ const Config = {
         L4_ALLOWED_TARGET: 0,
         PRODUCT_PRIORITY: {
             L1_ADD: ["BTC", "BTC_Spot", "IBIT"],
-            L2_ADD: ["00713", "00662", "QQQ"],
-            L2_TRIM: ["QQQ", "00662", "00713"],
+            L2_ADD: ["00670L", "00685L", "00662", "00713", "QQQ"],
+            L2_TRIM: ["QQQ", "00670L", "00685L", "00662", "00713"],
             L3_ADD: ["CASH_TWD", "CASH_FC", "BOXX"],
             L3_TRIM: ["BOXX", "CASH_FC", "CASH_TWD"]
         },
@@ -65,7 +65,7 @@ const Config = {
     // Reference: Multi_Target_Analysis_20260117.md
     ASSET_GROUPS: [
         { id: "L1", name: "Layer 1: Digital Reserve (Attack)", defaultTarget: 0.70, tickers: ["IBIT", "BTC_Spot", "BTC"] },
-        { id: "L2", name: "Layer 2: Credit Base (Defend)", defaultTarget: 0.20, tickers: ["00713", "00662", "QQQ"] },
+        { id: "L2", name: "Layer 2: Equity Exposure (Defend)", defaultTarget: 0.20, tickers: ["00713", "00662", "00670L", "00685L", "QQQ"] },
         { id: "L3", name: "Layer 3: Tactical Liquidity", defaultTarget: 0.10, tickers: ["BOXX", "CASH_TWD", "CASH_FC"] }
     ],
 
