@@ -11,11 +11,13 @@ const InventoryExportRepo = {
         const positionsSheetName = opts.positionsSheetName || Config.SHEET_NAMES.INVENTORY_EXPORT_POSITIONS;
 
         const summaryValues = this.getOptionalSheetValues_(ss, summarySheetName);
+        const summaryDisplayValues = this.getOptionalSheetDisplayValues_(ss, summarySheetName);
         const positionsValues = this.getOptionalSheetValues_(ss, positionsSheetName);
         const positionsDisplayValues = this.getOptionalSheetDisplayValues_(ss, positionsSheetName);
 
         return this.buildExportBundleFromTables_(summaryValues, positionsValues, {
             summarySheetName: summarySheetName,
+            summaryDisplayValues: summaryDisplayValues,
             positionsSheetName: positionsSheetName,
             positionsDisplayValues: positionsDisplayValues
         });
@@ -23,7 +25,7 @@ const InventoryExportRepo = {
 
     buildExportBundleFromTables_: function (summaryValues, positionsValues, metadata) {
         const meta = metadata || {};
-        const summaryRows = this.parseSummaryRows_(summaryValues);
+        const summaryRows = this.parseSummaryRows_(summaryValues, meta.summaryDisplayValues);
         const positions = this.parsePositionRows_(positionsValues, meta.positionsDisplayValues);
         const available = summaryRows.length > 0 || positions.length > 0;
         const summary = {};
@@ -47,8 +49,11 @@ const InventoryExportRepo = {
         };
     },
 
-    parseSummaryRows_: function (values) {
-        const rows = this.parseTable_(values);
+    parseSummaryRows_: function (values, displayValues) {
+        const rows = this.parseTable_(values, {
+            displayValues: displayValues,
+            preserveDisplayedValueTypes: ["text"]
+        });
         if (!rows) return [];
 
         this.assertRequiredHeaders_(rows.headers, ["key", "value"], "summary export");
@@ -72,8 +77,10 @@ const InventoryExportRepo = {
         const opts = options || {};
         const displayValues = opts.displayValues || [];
         const preserveDisplayedHeaders = opts.preserveDisplayedHeaders || [];
+        const preserveDisplayedValueTypes = opts.preserveDisplayedValueTypes || [];
         const rawHeaders = values[0].map(value => this.normalizeText_(value));
         const canonicalHeaders = rawHeaders.map(value => this.toCanonicalHeader_(value));
+        const valueTypeColumnIndex = canonicalHeaders.indexOf("valueType");
         const records = [];
 
         for (let rowIndex = 1; rowIndex < values.length; rowIndex++) {
@@ -86,7 +93,13 @@ const InventoryExportRepo = {
                 if (!header) continue;
 
                 const displayRow = displayValues[rowIndex] || [];
-                if (preserveDisplayedHeaders.indexOf(header) >= 0 && displayRow[colIndex] != null) {
+                const rowValueType = valueTypeColumnIndex >= 0
+                    ? this.normalizeText_(row[valueTypeColumnIndex]).toLowerCase()
+                    : "";
+                const preserveByValueType = header === "value"
+                    && preserveDisplayedValueTypes.indexOf(rowValueType) >= 0;
+                if ((preserveDisplayedHeaders.indexOf(header) >= 0 || preserveByValueType)
+                    && displayRow[colIndex] != null) {
                     record[header] = this.normalizeText_(displayRow[colIndex]);
                 } else {
                     record[header] = this.coerceValue_(row[colIndex]);

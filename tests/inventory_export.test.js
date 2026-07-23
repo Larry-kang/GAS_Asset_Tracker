@@ -175,6 +175,37 @@ if (typeof require === 'function') {
     assert.equal(bundle.positions[1].isLeveragedETF, true);
   });
 
+  test('InventoryExportRepo honors optional summary valueType text using displayed values', () => {
+    const repoRoot = path.resolve(__dirname, '..');
+    const context = loadScripts([
+      path.join(repoRoot, 'Repo_InventoryExport.js')
+    ], {
+      JSON,
+      Date,
+      console
+    });
+    const repo = evaluateInContext('InventoryExportRepo', context);
+
+    const bundle = repo.buildExportBundleFromTables_(
+      [
+        ['key', 'value', 'source', 'valueType'],
+        ['OriginalCoreTicker', 662, 'Strategy_Config', 'text'],
+        ['StockTargetExposureRatio', 1, 'Strategy_Config', 'number']
+      ],
+      [['ticker']],
+      {
+        summaryDisplayValues: [
+          ['key', 'value', 'source', 'valueType'],
+          ['OriginalCoreTicker', '00662', 'Strategy_Config', 'text'],
+          ['StockTargetExposureRatio', '1.00', 'Strategy_Config', 'number']
+        ]
+      }
+    );
+
+    assert.equal(bundle.summary.OriginalCoreTicker, '00662');
+    assert.equal(bundle.summary.StockTargetExposureRatio, 1);
+  });
+
   test('OKX DCA summary export helpers normalize headers and build stable rows', () => {
     const repoRoot = path.resolve(__dirname, '..');
     const context = loadScripts([
