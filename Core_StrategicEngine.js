@@ -489,6 +489,14 @@ function buildStockExposureSnapshot_(stockStrategy) {
   return s;
 }
 
+function applyStockSettlementGateToRebalanceTargets_(targets, stockStrategy) {
+  const list = Array.isArray(targets) ? targets : [];
+  if (!stockStrategy || !stockStrategy.isPending) return list;
+  return list.filter(function (target) {
+    return target && target.id === "L4" && target.action === "CLEAR";
+  });
+}
+
 const RULES = [
   {
     name: "ATH Breakout Monitor",
@@ -535,7 +543,11 @@ const RULES = [
         }
 
         let actionText = "執行買入: TWD " + estCost.toLocaleString() + " 等值 BTC。\n(執行後請手動更新 `Total_Martingale_Spent` += " + estCost + ")";
-        if (shouldSuppressAggressiveBtcBuying_(context.market.btcRegime)) {
+        if (context.stockStrategy && context.stockStrategy.isPending) {
+          actionText =
+            "狙擊訊號成立，但股票重整與質押清償尚未完成。\n" +
+            "不執行加速買入；等待 T+2、實際自由現金與股票負債歸零，只保留既有固定 DCA。";
+        } else if (shouldSuppressAggressiveBtcBuying_(context.market.btcRegime)) {
           actionText = "狙擊訊號成立，但目前 BTC Regime 為 " + context.market.btcRegime.regime +
             " / Restock Mode: " + context.market.btcRegime.restockMode + "。\n" +
             (buildCryptoLtvGuardrailAction_(context.market.btcRegime) || "暫不執行戰術買入，只保留固定 DCA 或手動檢查。");
@@ -590,6 +602,10 @@ const RULES = [
       return context.market.surplus > 0 || context.rebalanceTargets.length > 0;
     },
     getAction: function (context) {
+      if (context.stockStrategy && context.stockStrategy.isPending) {
+        return null;
+      }
+
       const topTarget = (context.rebalanceTargets || [])[0];
       if (topTarget) {
         return buildRebalanceAlert_(topTarget);
@@ -1106,11 +1122,12 @@ function buildContext() {
   });
 
   // Phase 6: 再平衡目標
-  const targets = enrichRebalanceTargets_(
+  let targets = enrichRebalanceTargets_(
     getRebalanceTargets(assetGroups, totalGrossAssets, market),
     portfolioSummary,
     assetGroups
   );
+  targets = applyStockSettlementGateToRebalanceTargets_(targets, stockStrategy);
 
   const indicators = {
     isValid: pledgeGroups.length > 0,

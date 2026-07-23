@@ -119,4 +119,23 @@ if (typeof require === 'function') {
     assert.match(alert.action, /暫停新增股票操作與股票質押/);
     assert.doesNotMatch(alert.action, /67%|00713 佔比過低|Target Loan/);
   });
+
+  test('pending settlement suppresses allocation changes except explicit L4 cleanup', () => {
+    const context = loadStrategicEngineContext();
+    context.fixture = buildFixture(true);
+    context.targets = [
+      { id: 'L1', action: 'ADD' },
+      { id: 'L2', action: 'ADD' },
+      { id: 'L3', action: 'TRIM' },
+      { id: 'L4', action: 'CLEAR' }
+    ];
+    const gated = vm.runInContext(
+      'applyStockSettlementGateToRebalanceTargets_(targets, buildStockExposureStrategy_(fixture))',
+      context
+    );
+
+    assert.equal(gated.length, 1);
+    assert.equal(gated[0].id, 'L4');
+    assert.equal(gated[0].action, 'CLEAR');
+  });
 }
