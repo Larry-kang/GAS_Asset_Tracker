@@ -4,7 +4,7 @@
  */
 const Config = {
     SYSTEM_NAME: "SAP - Sovereign Asset Protocol",
-    VERSION: "v24.15", // Inventory-driven stock exposure monitoring
+    VERSION: "v24.16", // BTC 1.0 Milestone De-escalation & 2x Leveraged Stock Strategy
 
     // Feature Flags
     FEATURES: {
@@ -71,4 +71,3 @@ const Config = {
 
     NOISE_ASSETS: ["ETH", "BNB", "TQQQ"]
 };
-

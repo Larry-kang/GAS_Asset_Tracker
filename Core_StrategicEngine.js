@@ -745,6 +745,22 @@ const RULES = [
     }
   },
   {
+    name: "BTC 1.0 Milestone De-escalation Monitor",
+    phase: "All",
+    condition: function (context) {
+      const btcEq = (context.inventoryExport && context.inventoryExport.summary && (context.inventoryExport.summary.BTC_Equivalent || context.inventoryExport.summary.btc_equivalent)) || (context.portfolioSummary && context.portfolioSummary.BTC_Equivalent) || 0;
+      return Number(btcEq || 0) >= 1.0;
+    },
+    getAction: function (context) {
+      const btcEq = (context.inventoryExport && context.inventoryExport.summary && (context.inventoryExport.summary.BTC_Equivalent || context.inventoryExport.summary.btc_equivalent)) || (context.portfolioSummary && context.portfolioSummary.BTC_Equivalent) || 0;
+      return {
+        level: "[里程碑] 1.0 BTC 達標告警",
+        message: "BTC-equivalent 已達標 (" + Number(btcEq).toFixed(4) + " BTC >= 1.0000 BTC)。",
+        action: "建議啟動第二階段降速協議：將 OKX DCA 降至 2U/天 (60U/月)，由日日生幣被動利息自給自足；釋出之月現金流 (~4.5萬 TWD) 轉向台股正二重整 (目標 100萬 曝險)。"
+      };
+    }
+  },
+  {
     name: "Taiwan Stock Leverage Advisor",
     phase: "All",
     condition: function (context) {
