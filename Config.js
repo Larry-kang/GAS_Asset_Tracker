@@ -38,8 +38,8 @@ const Config = {
             L1_ADD: ["BTC", "BTC_Spot", "IBIT"],
             L2_ADD: ["00670L", "00685L", "00662", "00713", "QQQ"],
             L2_TRIM: ["QQQ", "00670L", "00685L", "00662", "00713"],
-            L3_ADD: ["CASH_TWD", "CASH_FC", "BOXX"],
-            L3_TRIM: ["BOXX", "CASH_FC", "CASH_TWD"]
+            L3_ADD: ["CASH_TWD", "CASH_FC", "OKX_RLUSD", "Yield_Credit", "BOXX"],
+            L3_TRIM: ["BOXX", "OKX_RLUSD", "Yield_Credit", "CASH_FC", "CASH_TWD"]
         },
         PLEDGE_RATIO_SAFE: 2.5,
         PLEDGE_RATIO_ALERT: 2.1,
@@ -66,7 +66,7 @@ const Config = {
     ASSET_GROUPS: [
         { id: "L1", name: "Layer 1: Digital Reserve (Attack)", defaultTarget: 0.70, tickers: ["IBIT", "BTC_Spot", "BTC"] },
         { id: "L2", name: "Layer 2: Equity Exposure (Defend)", defaultTarget: 0.20, tickers: ["00713", "00662", "00670L", "00685L", "QQQ"] },
-        { id: "L3", name: "Layer 3: Tactical Liquidity", defaultTarget: 0.10, tickers: ["BOXX", "CASH_TWD", "CASH_FC"] }
+        { id: "L3", name: "Layer 3: Tactical Liquidity", defaultTarget: 0.10, tickers: ["BOXX", "CASH_TWD", "CASH_FC", "OKX_RLUSD", "Yield_Credit"] }
     ],
 
     NOISE_ASSETS: ["ETH", "BNB", "TQQQ"]
