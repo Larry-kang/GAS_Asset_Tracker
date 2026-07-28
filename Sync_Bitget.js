@@ -1,6 +1,6 @@
 // =======================================================
-// --- Bitget Service Layer (v1.0 - Unified Ledger)
-// --- Supports Spot, Savings, Crypto Loan, and optional Funding assets
+// --- Bitget Service Layer (v1.1 - UTA Compatible)
+// --- Supports Unified Account, Earn, Crypto Loan, and optional Funding assets
 // =======================================================
 
 function getBitgetBalance() {
@@ -23,12 +23,28 @@ function getBitgetBalance() {
       return SyncManager.commitExchangeResult(ss, MODULE_NAME, result);
     }
 
-    // A. Spot
+    // A. Unified Account (with Classic fallback)
     const spotRes = fetchBitgetSpotAssets_(baseUrl, apiKey, apiSecret, apiPassphrase);
     let spotRows = 0;
     if (spotRes.success && spotRes.data) {
       spotRes.data.forEach(item => {
         const coin = String(item.coin || "").toUpperCase();
+
+        if (spotRes.accountMode === 'UTA') {
+          const equity = parseBitgetNumber_(item.equity);
+          if (!coin || equity === 0) return;
+
+          result.assets.push({
+            ccy: coin,
+            amt: equity,
+            type: 'Unified',
+            status: 'Equity',
+            meta: buildBitgetUnifiedAssetMeta_(item)
+          });
+          spotRows++;
+          return;
+        }
+
         const available = parseBitgetNumber_(item.available);
         const frozen = parseBitgetNumber_(item.frozen);
         const locked = parseBitgetNumber_(item.locked);
@@ -40,73 +56,51 @@ function getBitgetBalance() {
         if (locked > 0) { result.assets.push({ ccy: coin, amt: locked, type: 'Spot', status: 'Locked', meta: 'Spot Locked' }); spotRows++; }
         if (restricted > 0) { result.assets.push({ ccy: coin, amt: restricted, type: 'Spot', status: 'Restricted', meta: 'Spot LimitAvailable' }); spotRows++; }
       });
-      SyncManager.registerSourceCheck(result, { name: 'Spot', required: true, success: true, rows: spotRows });
+      SyncManager.registerSourceCheck(result, {
+        name: 'Unified Account',
+        required: true,
+        success: true,
+        rows: spotRows,
+        message: `mode=${spotRes.accountMode || 'UNKNOWN'}`
+      });
     } else {
       SyncManager.registerSourceCheck(result, {
-        name: 'Spot',
+        name: 'Unified Account',
         required: true,
         success: false,
         message: spotRes.status || 'Unknown error'
       });
     }
 
-    // B. Savings - Flexible
-    const flexibleRes = fetchBitgetSavingsAssets_(baseUrl, apiKey, apiSecret, apiPassphrase, 'flexible');
-    let flexibleRows = 0;
-    if (flexibleRes.success && flexibleRes.data) {
-      flexibleRes.data.forEach(item => {
-        const coin = String(item.productCoin || "").toUpperCase();
-        const holdAmount = parseBitgetNumber_(item.holdAmount);
-        if (!coin || holdAmount <= 0) return;
+    // B. Earn aggregate. UTA rejects the Classic savings-order detail endpoint.
+    const earnRes = fetchBitgetEarnAssets_(baseUrl, apiKey, apiSecret, apiPassphrase);
+    let earnRows = 0;
+    if (earnRes.success && earnRes.data) {
+      earnRes.data.forEach(item => {
+        const coin = String(item.coin || "").toUpperCase();
+        const amount = parseBitgetNumber_(item.amount);
+        if (!coin || amount <= 0) return;
 
         result.assets.push({
           ccy: coin,
-          amt: holdAmount,
+          amt: amount,
           type: 'Earn',
-          status: 'Flexible',
-          meta: buildBitgetSavingsMeta_(item)
+          status: 'Aggregate',
+          meta: 'Bitget Earn account aggregate'
         });
-        flexibleRows++;
+        earnRows++;
       });
-      SyncManager.registerSourceCheck(result, { name: 'Savings Flexible', required: true, success: true, rows: flexibleRows });
+      SyncManager.registerSourceCheck(result, { name: 'Earn', required: true, success: true, rows: earnRows });
     } else {
       SyncManager.registerSourceCheck(result, {
-        name: 'Savings Flexible',
+        name: 'Earn',
         required: true,
         success: false,
-        message: flexibleRes.status || 'Unknown error'
+        message: earnRes.status || 'Unknown error'
       });
     }
 
-    // C. Savings - Fixed
-    const fixedRes = fetchBitgetSavingsAssets_(baseUrl, apiKey, apiSecret, apiPassphrase, 'fixed');
-    let fixedRows = 0;
-    if (fixedRes.success && fixedRes.data) {
-      fixedRes.data.forEach(item => {
-        const coin = String(item.productCoin || "").toUpperCase();
-        const holdAmount = parseBitgetNumber_(item.holdAmount);
-        if (!coin || holdAmount <= 0) return;
-
-        result.assets.push({
-          ccy: coin,
-          amt: holdAmount,
-          type: 'Earn',
-          status: 'Fixed',
-          meta: buildBitgetSavingsMeta_(item)
-        });
-        fixedRows++;
-      });
-      SyncManager.registerSourceCheck(result, { name: 'Savings Fixed', required: true, success: true, rows: fixedRows });
-    } else {
-      SyncManager.registerSourceCheck(result, {
-        name: 'Savings Fixed',
-        required: true,
-        success: false,
-        message: fixedRes.status || 'Unknown error'
-      });
-    }
-
-    // D. Crypto Loan - Ongoing
+    // C. Crypto Loan - Ongoing
     const loanRes = fetchBitgetBorrowOngoing_(baseUrl, apiKey, apiSecret, apiPassphrase);
     let loanRows = 0;
     if (loanRes.success && loanRes.data) {
@@ -150,7 +144,7 @@ function getBitgetBalance() {
       });
     }
 
-    // E. Funding (Optional)
+    // D. Funding (Optional)
     const fundingRes = fetchBitgetFundingAssets_(baseUrl, apiKey, apiSecret, apiPassphrase);
     let fundingRows = 0;
     if (fundingRes.success && fundingRes.data) {
@@ -181,43 +175,40 @@ function getBitgetBalance() {
 }
 
 function fetchBitgetSpotAssets_(baseUrl, apiKey, apiSecret, apiPassphrase) {
-  const res = fetchBitgetApi_(baseUrl, '/api/v2/spot/account/assets', { assetType: 'all' }, apiKey, apiSecret, apiPassphrase);
+  let res = fetchBitgetApi_(baseUrl, '/api/v3/account/assets', {}, apiKey, apiSecret, apiPassphrase);
+  if (res.code === "00000" && res.data && Array.isArray(res.data.assets)) {
+    return { success: true, data: res.data.assets, accountMode: 'UTA' };
+  }
+
+  // A Classic account cannot call UTA v3. Keep the old reader during migration.
+  if (res.code === "40084") {
+    res = fetchBitgetApi_(baseUrl, '/api/v2/spot/account/assets', { assetType: 'all' }, apiKey, apiSecret, apiPassphrase);
+    if (res.code === "00000" && Array.isArray(res.data)) {
+      return { success: true, data: res.data, accountMode: 'CLASSIC' };
+    }
+  }
+  return { success: false, status: bitgetStatus_(res) };
+}
+
+function fetchBitgetEarnAssets_(baseUrl, apiKey, apiSecret, apiPassphrase) {
+  const res = fetchBitgetApi_(baseUrl, '/api/v2/earn/account/assets', {}, apiKey, apiSecret, apiPassphrase);
   if (res.code === "00000" && Array.isArray(res.data)) {
     return { success: true, data: res.data };
   }
   return { success: false, status: bitgetStatus_(res) };
 }
 
-function fetchBitgetSavingsAssets_(baseUrl, apiKey, apiSecret, apiPassphrase, periodType) {
-  const allRows = [];
-  let cursor = '';
-  let page = 0;
-
-  while (page < 10) {
-    const params = { periodType: periodType, limit: '100' };
-    if (cursor) params.idLessThan = cursor;
-
-    const res = fetchBitgetApi_(baseUrl, '/api/v2/earn/savings/assets', params, apiKey, apiSecret, apiPassphrase);
-    if (res.code !== "00000") {
-      return { success: false, status: bitgetStatus_(res) };
-    }
-
-    const payload = res.data || {};
-    const rows = Array.isArray(payload.resultList) ? payload.resultList : [];
-    allRows.push.apply(allRows, rows);
-
-    cursor = payload.endId || '';
-    if (rows.length < 100 || !cursor) break;
-    page++;
-  }
-
-  return { success: true, data: allRows };
-}
-
 function fetchBitgetFundingAssets_(baseUrl, apiKey, apiSecret, apiPassphrase) {
-  const res = fetchBitgetApi_(baseUrl, '/api/v2/account/funding-assets', {}, apiKey, apiSecret, apiPassphrase);
+  let res = fetchBitgetApi_(baseUrl, '/api/v3/account/funding-assets', {}, apiKey, apiSecret, apiPassphrase);
   if (res.code === "00000" && Array.isArray(res.data)) {
     return { success: true, data: res.data };
+  }
+
+  if (res.code === "40084") {
+    res = fetchBitgetApi_(baseUrl, '/api/v2/account/funding-assets', {}, apiKey, apiSecret, apiPassphrase);
+    if (res.code === "00000" && Array.isArray(res.data)) {
+      return { success: true, data: res.data };
+    }
   }
   return { success: false, status: bitgetStatus_(res) };
 }
@@ -297,6 +288,14 @@ function parseBitgetNumber_(value) {
 
 function bitgetStatus_(res) {
   return `Code: ${res.code || 'UNKNOWN'}, Msg: ${res.msg || res.message || 'Unknown error'}`;
+}
+
+function buildBitgetUnifiedAssetMeta_(item) {
+  const fields = ['balance', 'available', 'locked', 'debt', 'usdValue'];
+  return fields
+    .filter(key => item[key] !== null && item[key] !== undefined && item[key] !== '')
+    .map(key => `${key}=${item[key]}`)
+    .join('; ');
 }
 
 function buildBitgetSavingsMeta_(item) {

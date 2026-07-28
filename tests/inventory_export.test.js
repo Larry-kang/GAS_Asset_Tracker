@@ -105,6 +105,51 @@ if (typeof require === 'function') {
     assert.equal(payload.data.inventoryExport.positions[0].account, 'OKX');
   });
 
+  test('handleGetInventory falls back to export sheets when Balance Sheet context fails', () => {
+    const repoRoot = path.resolve(__dirname, '..');
+    const sandbox = createWebhookSandbox();
+    sandbox.buildContext = function () {
+      throw new Error('Could not find balance sheet: Balance Sheet');
+    };
+    sandbox.buildFreshContext = sandbox.buildContext;
+    const context = loadScripts([
+      path.join(repoRoot, 'Event_Webhook.js')
+    ], sandbox);
+
+    const response = context.handleGetInventory({});
+    const payload = JSON.parse(response.getContent());
+
+    assert.equal(payload.status, 'success');
+    assert.equal(payload.data.partial, true);
+    assert.match(payload.data.warnings[0], /Balance Sheet/);
+    assert.equal(payload.data.inventoryExport.schemaVersion, '2');
+    assert.equal(payload.data.inventoryExport.positions[0].account, 'OKX');
+  });
+
+  test('handleQuickSummary returns a partial inventory status when Balance Sheet context fails', () => {
+    const repoRoot = path.resolve(__dirname, '..');
+    const sandbox = createWebhookSandbox();
+    sandbox.Config = { VERSION: 'v24.17' };
+    sandbox.buildContext = function () {
+      throw new Error('Could not find balance sheet: Balance Sheet');
+    };
+    sandbox.buildStockExposureStrategy_ = function () {
+      return { grossExposureTwd: 691600 };
+    };
+    const context = loadScripts([
+      path.join(repoRoot, 'Event_Webhook.js')
+    ], sandbox);
+
+    const response = context.handleQuickSummary({});
+    const payload = JSON.parse(response.getContent());
+
+    assert.equal(payload.status, 'success');
+    assert.equal(payload.data.partial, true);
+    assert.match(payload.data.warning, /Balance Sheet/);
+    assert.equal(payload.data.stockStrategy.grossExposureTwd, 691600);
+    assert.equal(payload.data.inventoryExport.positions[0].account, 'OKX');
+  });
+
   test('strategic report preview is read-only and returns the rendered stock strategy', () => {
     const repoRoot = path.resolve(__dirname, '..');
     const sandbox = createWebhookSandbox();

@@ -4,7 +4,7 @@
  */
 const Config = {
     SYSTEM_NAME: "SAP - Sovereign Asset Protocol",
-    VERSION: "v24.16", // BTC 1.0 Milestone De-escalation & 2x Leveraged Stock Strategy
+    VERSION: "v24.17", // Bitget UTA sync and export-only webhook fallback
 
     // Feature Flags
     FEATURES: {

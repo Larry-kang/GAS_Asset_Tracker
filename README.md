@@ -25,7 +25,7 @@ SAP 是一套建構在 Google Apps Script (GAS) 與 Google Sheets 上的個人�
 | --- | --- |
 | Binance | Spot、Funding、Simple Earn flexible / locked、Futures account-level 資訊、Flexible Loan 資訊，實際範圍取決於權限與帳戶模式。 |
 | OKX | Spot / Funding 類資產、Earn / Staking、Flexible Loan 抵押品與負債。 |
-| Bitget | Spot、Funding、Savings / Earn、Crypto Loan 抵押品與負債。 |
+| Bitget | Unified Account、Funding、Earn aggregate、Crypto Loan 抵押品與負債。UTA 使用 v3 account API。 |
 | Bybit | Unified Wallet、衍生品 instrument metadata、Earn / product metadata、借貸欄位；若 GAS IP 被擋，需透過 local bridge。 |
 | Pionex | Spot balance。Bot / order 資料屬 optional，取決於 API 權限。 |
 | BitoPro | Spot balance，以及 BitoPro 原生資產價格支援。 |
@@ -82,6 +82,10 @@ Webhook 回傳仍保留舊版 `buildContext()` payload；如果上述 export she
   }
 }
 ```
+
+若舊版 `Balance Sheet` 不存在或契約驗證失敗，但 export sheets 有資料，
+`get_inventory` 仍會回傳 `status=success`、`data.partial=true` 與
+`data.inventoryExport`。這讓只需要即時庫存的外部 agent 不受舊策略表限制。
 
 這樣未來新增像 `BTC_Spot_Quantity`、`IBIT_Quantity`、`IBIT_BTC_Per_Share` 之類欄位，原則上只要改 sheet formula，不必再改 webhook code。
 

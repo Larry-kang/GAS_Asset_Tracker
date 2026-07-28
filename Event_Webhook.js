@@ -191,25 +191,46 @@ function handleTriggerReport(data) {
 
 function handleGetInventory(data) {
   // [ReadOnly] Export calculated context for SAR simulation
-  if (typeof buildContext === 'function') {
-    const context = typeof buildFreshContext === 'function' ? buildFreshContext() : buildContext();
-    const exportBundle = typeof getInventoryExportBundle_ === 'function'
-      ? getInventoryExportBundle_()
-      : null;
-
-    if (exportBundle && exportBundle.available) {
-      context.inventoryExport = exportBundle;
-    }
-
-    return ContentService.createTextOutput(JSON.stringify({
-      status: "success",
-      source: "GAS_Asset_Tracker",
-      timestamp: new Date().toISOString(),
-      data: context
-    }));
-  } else {
+  if (typeof buildContext !== 'function' && typeof getInventoryExportBundle_ !== 'function') {
     return ContentService.createTextOutput(JSON.stringify({ status: "error", msg: "StrategicEngine (buildContext) not found" }));
   }
+
+  const exportBundle = readInventoryExportSafely_();
+  let context = null;
+  let contextError = null;
+
+  if (typeof buildContext === 'function') {
+    try {
+      context = typeof buildFreshContext === 'function' ? buildFreshContext() : buildContext();
+    } catch (e) {
+      contextError = e;
+    }
+  }
+
+  if (!context && (!exportBundle || !exportBundle.available)) {
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "error",
+      msg: contextError ? contextError.toString() : "No inventory source available"
+    }));
+  }
+
+  context = context || {
+    partial: true,
+    warnings: [contextError ? contextError.toString() : "Legacy strategic context unavailable"]
+  };
+  if (exportBundle && exportBundle.available) {
+    context.inventoryExport = exportBundle;
+    if (!context.stockStrategy && typeof buildStockExposureStrategy_ === 'function') {
+      context.stockStrategy = buildStockExposureStrategy_(exportBundle);
+    }
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({
+    status: "success",
+    source: "GAS_Asset_Tracker",
+    timestamp: new Date().toISOString(),
+    data: context
+  }));
 }
 
 /**
@@ -219,11 +240,45 @@ function handleQuickSummary(data) {
   const logCtx = "Webhook:Status";
   LogService.info("Discord User requested quick status check.", logCtx);
 
-  if (typeof buildContext !== 'function') {
+  if (typeof buildContext !== 'function' && typeof getInventoryExportBundle_ !== 'function') {
     return ContentService.createTextOutput(JSON.stringify({ status: "error", msg: "Core Engine missing" }));
   }
 
-  const ctx = buildContext();
+  let ctx = null;
+  let contextError = null;
+  if (typeof buildContext === 'function') {
+    try {
+      ctx = buildContext();
+    } catch (e) {
+      contextError = e;
+    }
+  }
+
+  if (!ctx) {
+    const exportBundle = readInventoryExportSafely_();
+    if (!exportBundle || !exportBundle.available) {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: "error",
+        msg: contextError ? contextError.toString() : "No status source available"
+      }));
+    }
+
+    const stockStrategy = typeof buildStockExposureStrategy_ === 'function'
+      ? buildStockExposureStrategy_(exportBundle)
+      : null;
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "success",
+      data: {
+        partial: true,
+        warning: contextError ? contextError.toString() : "Legacy strategic context unavailable",
+        inventoryExport: exportBundle,
+        stockStrategy: stockStrategy,
+        timestamp: new Date().toISOString(),
+        version: Config.VERSION
+      }
+    }));
+  }
+
   const summary = {
     netWorth: ctx.netEntityValue,
     ltv: ctx.indicators.ltv,
@@ -249,6 +304,16 @@ function handleQuickSummary(data) {
     status: "success",
     data: summary
   }));
+}
+
+function readInventoryExportSafely_() {
+  if (typeof getInventoryExportBundle_ !== 'function') return null;
+  try {
+    return getInventoryExportBundle_();
+  } catch (e) {
+    LogService.warn("Inventory export unavailable: " + e.toString(), "Webhook:Inventory");
+    return null;
+  }
 }
 
 /**
