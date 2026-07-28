@@ -298,28 +298,6 @@ function buildBitgetUnifiedAssetMeta_(item) {
     .join('; ');
 }
 
-function buildBitgetSavingsMeta_(item) {
-  const metaParts = [];
-  const apy = getBitgetCurrentApy_(item.apy);
-  const totalProfit = parseBitgetNumber_(item.totalProfit);
-
-  if (item.interestCoin) metaParts.push(`interestCoin=${item.interestCoin}`);
-  if (item.status) metaParts.push(`status=${item.status}`);
-  if (item.productLevel) metaParts.push(`level=${item.productLevel}`);
-  if (apy) metaParts.push(`apy=${apy}`);
-  if (totalProfit !== 0) metaParts.push(`totalProfit=${totalProfit}`);
-  if (item.periodType === 'fixed' && item.period) metaParts.push(`period=${item.period}`);
-  if (item.holdDays) metaParts.push(`holdDays=${item.holdDays}`);
-
-  return metaParts.join('; ');
-}
-
-function getBitgetCurrentApy_(apyList) {
-  if (!Array.isArray(apyList) || apyList.length === 0) return '';
-  const currentApy = apyList[0] && apyList[0].currentApy;
-  return currentApy ? String(currentApy) : '';
-}
-
 function buildBitgetLoanDebtMeta_(item, loanAmount, interestAmount) {
   const metaParts = [];
   const pledgeRate = parseBitgetNumber_(item.pledgeRate);
