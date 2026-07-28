@@ -89,6 +89,10 @@ Webhook 回傳仍保留舊版 `buildContext()` payload；如果上述 export she
 
 這樣未來新增像 `BTC_Spot_Quantity`、`IBIT_Quantity`、`IBIT_BTC_Per_Share` 之類欄位，原則上只要改 sheet formula，不必再改 webhook code。
 
+`debug_bitget_uta` 是 authenticated read-only production diagnostic。它只驗證
+Unified Account、Earn、Crypto Loan 與 Funding 私有 API，回傳成功狀態、列數
+與帳戶模式，不寫入 `Unified Assets`、`Sync_Status` 或其他工作表，也不回傳資產數量。
+
 股票有效曝險由 `API_Position_Export` 的 `region`, `strategyRole`,
 `exposureMultiplier`, `effectiveExposureTwd`, `settlementStatus` 與
 `pledgeStatus` 驅動。`Strategy_Config` 透過 `API_Summary_Export` 提供：

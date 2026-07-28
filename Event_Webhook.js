@@ -45,6 +45,9 @@ function doPost(e) {
       case 'debug_okx_recurring':
         return handleDebugOkxRecurring(data);
 
+      case 'debug_bitget_uta':
+        return handleDebugBitgetUta(data);
+
       default:
         console.warn(`[Webhook] Valid Action NOT FOUND. Payload: ${JSON.stringify(data)}`);
         return ContentService.createTextOutput(JSON.stringify({ status: "error", msg: "Unknown Action", received: data.action }));
@@ -314,6 +317,69 @@ function readInventoryExportSafely_() {
     LogService.warn("Inventory export unavailable: " + e.toString(), "Webhook:Inventory");
     return null;
   }
+}
+
+/**
+ * [ReadOnly Debug] Validates Bitget private UTA sources without committing
+ * assets, sync status, or logs to the spreadsheet.
+ */
+function handleDebugBitgetUta(data) {
+  if (typeof Credentials !== 'object'
+      || typeof fetchBitgetSpotAssets_ !== 'function'
+      || typeof fetchBitgetEarnAssets_ !== 'function'
+      || typeof fetchBitgetBorrowOngoing_ !== 'function'
+      || typeof fetchBitgetFundingAssets_ !== 'function') {
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "error",
+      debugAction: "bitget_uta",
+      msg: "Bitget debug dependencies missing"
+    }));
+  }
+
+  const creds = Credentials.get('BITGET') || {};
+  const { apiKey, apiSecret, apiPassphrase } = creds;
+  if (!apiKey || !apiSecret || !apiPassphrase) {
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "error",
+      debugAction: "bitget_uta",
+      msg: "Missing Bitget credentials"
+    }));
+  }
+
+  const baseUrl = 'https://api.bitget.com';
+  const account = fetchBitgetSpotAssets_(baseUrl, apiKey, apiSecret, apiPassphrase);
+  const earn = fetchBitgetEarnAssets_(baseUrl, apiKey, apiSecret, apiPassphrase);
+  const loan = fetchBitgetBorrowOngoing_(baseUrl, apiKey, apiSecret, apiPassphrase);
+  const funding = fetchBitgetFundingAssets_(baseUrl, apiKey, apiSecret, apiPassphrase);
+  const sources = [
+    buildBitgetDebugSource_("Unified Account", true, account, account.accountMode || null),
+    buildBitgetDebugSource_("Earn", true, earn, null),
+    buildBitgetDebugSource_("Crypto Loan", true, loan, null),
+    buildBitgetDebugSource_("Funding", false, funding, null)
+  ];
+  const requiredSuccess = sources.every(source => !source.required || source.success);
+
+  return ContentService.createTextOutput(JSON.stringify({
+    status: requiredSuccess ? "success" : "error",
+    debugAction: "bitget_uta",
+    dryRun: true,
+    writesSpreadsheet: false,
+    timestamp: new Date().toISOString(),
+    version: Config.VERSION,
+    sources: sources
+  }));
+}
+
+function buildBitgetDebugSource_(name, required, result, mode) {
+  const source = {
+    name: name,
+    required: required,
+    success: !!(result && result.success),
+    rows: result && Array.isArray(result.data) ? result.data.length : 0
+  };
+  if (mode) source.mode = mode;
+  if (!source.success) source.error = (result && result.status) || "Unknown error";
+  return source;
 }
 
 /**

@@ -4,7 +4,7 @@
  */
 const Config = {
     SYSTEM_NAME: "SAP - Sovereign Asset Protocol",
-    VERSION: "v24.17", // Bitget UTA sync and export-only webhook fallback
+    VERSION: "v24.18", // Read-only Bitget UTA production diagnostics
 
     // Feature Flags
     FEATURES: {

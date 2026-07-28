@@ -150,6 +150,44 @@ if (typeof require === 'function') {
     assert.equal(payload.data.inventoryExport.positions[0].account, 'OKX');
   });
 
+  test('Bitget UTA debug validates private sources without returning asset details', () => {
+    const repoRoot = path.resolve(__dirname, '..');
+    const sandbox = createWebhookSandbox();
+    sandbox.Config = { VERSION: 'v24.18' };
+    sandbox.Credentials = {
+      get() {
+        return { apiKey: 'key', apiSecret: 'secret', apiPassphrase: 'pass' };
+      }
+    };
+    sandbox.fetchBitgetSpotAssets_ = function () {
+      return { success: true, accountMode: 'UTA', data: [{ coin: 'BTC', equity: '1.23' }] };
+    };
+    sandbox.fetchBitgetEarnAssets_ = function () {
+      return { success: true, data: [{ coin: 'USDT', amount: '100' }] };
+    };
+    sandbox.fetchBitgetBorrowOngoing_ = function () {
+      return { success: true, data: [] };
+    };
+    sandbox.fetchBitgetFundingAssets_ = function () {
+      return { success: true, data: [{ coin: 'USDT', balance: '5' }] };
+    };
+    const context = loadScripts([
+      path.join(repoRoot, 'Event_Webhook.js')
+    ], sandbox);
+
+    const response = context.handleDebugBitgetUta({});
+    const payload = JSON.parse(response.getContent());
+    const serialized = response.getContent();
+
+    assert.equal(payload.status, 'success');
+    assert.equal(payload.dryRun, true);
+    assert.equal(payload.writesSpreadsheet, false);
+    assert.equal(payload.sources[0].mode, 'UTA');
+    assert.equal(payload.sources[0].rows, 1);
+    assert.equal(payload.sources[2].rows, 0);
+    assert.doesNotMatch(serialized, /1\.23|100|equity|amount/);
+  });
+
   test('strategic report preview is read-only and returns the rendered stock strategy', () => {
     const repoRoot = path.resolve(__dirname, '..');
     const sandbox = createWebhookSandbox();
