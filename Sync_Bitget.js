@@ -91,6 +91,16 @@ function getBitgetBalance() {
         earnRows++;
       });
       SyncManager.registerSourceCheck(result, { name: 'Earn', required: true, success: true, rows: earnRows });
+    } else if (earnRes.unsupportedInUta) {
+      const carriedEarnAssets = carryForwardBitgetEarnAssets_(ss);
+      result.assets.push.apply(result.assets, carriedEarnAssets);
+      SyncManager.registerSourceCheck(result, {
+        name: 'Earn',
+        required: false,
+        success: false,
+        rows: carriedEarnAssets.length,
+        message: `${earnRes.status}; preserved ${carriedEarnAssets.length} stale Earn row(s)`
+      });
     } else {
       SyncManager.registerSourceCheck(result, {
         name: 'Earn',
@@ -195,7 +205,12 @@ function fetchBitgetEarnAssets_(baseUrl, apiKey, apiSecret, apiPassphrase) {
   if (res.code === "00000" && Array.isArray(res.data)) {
     return { success: true, data: res.data };
   }
-  return { success: false, status: bitgetStatus_(res) };
+  return {
+    success: false,
+    unsupportedInUta: res.code === "40085",
+    code: res.code || null,
+    status: bitgetStatus_(res)
+  };
 }
 
 function fetchBitgetFundingAssets_(baseUrl, apiKey, apiSecret, apiPassphrase) {
@@ -296,6 +311,38 @@ function buildBitgetUnifiedAssetMeta_(item) {
     .filter(key => item[key] !== null && item[key] !== undefined && item[key] !== '')
     .map(key => `${key}=${item[key]}`)
     .join('; ');
+}
+
+function carryForwardBitgetEarnAssets_(ss) {
+  if (typeof UnifiedAssetsRepo !== 'object' || !UnifiedAssetsRepo.readAllRows) return [];
+
+  const rows = UnifiedAssetsRepo.readAllRows(ss);
+  return rows
+    .filter(row => String(row[0] || '').trim() === 'Bitget' && String(row[3] || '').trim() === 'Earn')
+    .map(row => {
+      const previousMeta = String(row[5] || '').trim();
+      const sourceMatch = previousMeta.match(/(?:^|;\s*)sourceUpdated=([^;]+)/);
+      const sourceUpdated = sourceMatch ? sourceMatch[1] : String(row[6] || '').trim();
+      const cleanedMeta = previousMeta
+        .replace(/(?:^|;\s*)sourceUpdated=[^;]+/g, '')
+        .replace(/(?:^|;\s*)warning=UTA Earn API unavailable/g, '')
+        .replace(/^;\s*|;\s*$/g, '')
+        .trim();
+      const metaParts = [
+        sourceUpdated ? `sourceUpdated=${sourceUpdated}` : '',
+        'warning=UTA Earn API unavailable',
+        cleanedMeta
+      ].filter(Boolean);
+
+      return {
+        ccy: String(row[1] || '').trim().toUpperCase(),
+        amt: parseBitgetNumber_(row[2]),
+        type: 'Earn',
+        status: 'Stale',
+        meta: metaParts.join('; ')
+      };
+    })
+    .filter(asset => asset.ccy && Math.abs(asset.amt) > 0);
 }
 
 function buildBitgetLoanDebtMeta_(item, loanAmount, interestAmount) {

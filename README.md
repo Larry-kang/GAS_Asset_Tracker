@@ -93,6 +93,11 @@ Webhook 回傳仍保留舊版 `buildContext()` payload；如果上述 export she
 Unified Account、Earn、Crypto Loan 與 Funding 私有 API，回傳成功狀態、列數
 與帳戶模式，不寫入 `Unified Assets`、`Sync_Status` 或其他工作表，也不回傳資產數量。
 
+Bitget 尚未提供可用的 UTA Earn v3 資產端點。若 v2 Earn 明確回覆 `40085`，
+同步會保留既有 Earn 列、標記為 `Stale` 並產生 optional warning；其他 Earn
+錯誤仍會中止 commit。這可避免 UTA trading assets 長期無法更新，也避免靜默刪除
+最後一次可驗證的 Earn 餘額。
+
 股票有效曝險由 `API_Position_Export` 的 `region`, `strategyRole`,
 `exposureMultiplier`, `effectiveExposureTwd`, `settlementStatus` 與
 `pledgeStatus` 驅動。`Strategy_Config` 透過 `API_Summary_Export` 提供：

@@ -4,7 +4,7 @@
  */
 const Config = {
     SYSTEM_NAME: "SAP - Sovereign Asset Protocol",
-    VERSION: "v24.18", // Read-only Bitget UTA production diagnostics
+    VERSION: "v24.19", // Preserve stale Earn rows when Bitget UTA rejects v2 Earn API
 
     // Feature Flags
     FEATURES: {

@@ -353,7 +353,7 @@ function handleDebugBitgetUta(data) {
   const funding = fetchBitgetFundingAssets_(baseUrl, apiKey, apiSecret, apiPassphrase);
   const sources = [
     buildBitgetDebugSource_("Unified Account", true, account, account.accountMode || null),
-    buildBitgetDebugSource_("Earn", true, earn, null),
+    buildBitgetDebugSource_("Earn", !earn.unsupportedInUta, earn, earn.unsupportedInUta ? "UNSUPPORTED_UTA" : null),
     buildBitgetDebugSource_("Crypto Loan", true, loan, null),
     buildBitgetDebugSource_("Funding", false, funding, null)
   ];

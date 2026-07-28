@@ -153,7 +153,7 @@ if (typeof require === 'function') {
   test('Bitget UTA debug validates private sources without returning asset details', () => {
     const repoRoot = path.resolve(__dirname, '..');
     const sandbox = createWebhookSandbox();
-    sandbox.Config = { VERSION: 'v24.18' };
+    sandbox.Config = { VERSION: 'v24.19' };
     sandbox.Credentials = {
       get() {
         return { apiKey: 'key', apiSecret: 'secret', apiPassphrase: 'pass' };
@@ -186,6 +186,45 @@ if (typeof require === 'function') {
     assert.equal(payload.sources[0].rows, 1);
     assert.equal(payload.sources[2].rows, 0);
     assert.doesNotMatch(serialized, /1\.23|100|equity|amount/);
+  });
+
+  test('Bitget UTA debug treats explicit Earn 40085 as an optional limitation', () => {
+    const repoRoot = path.resolve(__dirname, '..');
+    const sandbox = createWebhookSandbox();
+    sandbox.Config = { VERSION: 'v24.19' };
+    sandbox.Credentials = {
+      get() {
+        return { apiKey: 'key', apiSecret: 'secret', apiPassphrase: 'pass' };
+      }
+    };
+    sandbox.fetchBitgetSpotAssets_ = function () {
+      return { success: true, accountMode: 'UTA', data: [] };
+    };
+    sandbox.fetchBitgetEarnAssets_ = function () {
+      return {
+        success: false,
+        unsupportedInUta: true,
+        status: 'Code: 40085, Msg: Classic API unsupported'
+      };
+    };
+    sandbox.fetchBitgetBorrowOngoing_ = function () {
+      return { success: true, data: [] };
+    };
+    sandbox.fetchBitgetFundingAssets_ = function () {
+      return { success: true, data: [] };
+    };
+    const context = loadScripts([
+      path.join(repoRoot, 'Event_Webhook.js')
+    ], sandbox);
+
+    const payload = JSON.parse(context.handleDebugBitgetUta({}).getContent());
+    const earn = payload.sources.find(source => source.name === 'Earn');
+
+    assert.equal(payload.status, 'success');
+    assert.equal(earn.required, false);
+    assert.equal(earn.success, false);
+    assert.equal(earn.mode, 'UNSUPPORTED_UTA');
+    assert.match(earn.error, /40085/);
   });
 
   test('strategic report preview is read-only and returns the rendered stock strategy', () => {

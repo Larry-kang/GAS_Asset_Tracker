@@ -52,6 +52,49 @@ test('Bitget Earn reader uses account aggregate instead of Classic savings order
   assert.doesNotMatch(calledEndpoint, /savings\/assets/);
 });
 
+test('Bitget Earn reader identifies UTA unsupported response', () => {
+  const context = loadBitget();
+  context.fetchBitgetApi_ = function () {
+    return {
+      code: '40085',
+      msg: 'You are in Unified Account mode, and the Classic Account API is not supported at this time'
+    };
+  };
+
+  const result = context.fetchBitgetEarnAssets_('https://api.bitget.com', 'key', 'secret', 'pass');
+
+  assert.equal(result.success, false);
+  assert.equal(result.unsupportedInUta, true);
+  assert.equal(result.code, '40085');
+});
+
+test('Bitget Earn carry-forward preserves the original source timestamp', () => {
+  const context = loadBitget();
+  context.UnifiedAssetsRepo = {
+    readAllRows() {
+      return [
+        ['Bitget', 'USDT', 100, 'Earn', 'Flexible', 'apy=5', '2026-07-01T12:00:00'],
+        ['Bitget', 'BTC', 0.1, 'Unified', 'Equity', '', '2026-07-28T12:00:00'],
+        ['OKX', 'USDT', 50, 'Earn', 'Flexible', '', '2026-07-28T12:00:00']
+      ];
+    }
+  };
+
+  const first = context.carryForwardBitgetEarnAssets_({});
+  assert.equal(first.length, 1);
+  assert.equal(first[0].ccy, 'USDT');
+  assert.equal(first[0].status, 'Stale');
+  assert.match(first[0].meta, /sourceUpdated=2026-07-01T12:00:00/);
+  assert.match(first[0].meta, /warning=UTA Earn API unavailable/);
+
+  context.UnifiedAssetsRepo.readAllRows = function () {
+    return [['Bitget', 'USDT', 100, 'Earn', 'Stale', first[0].meta, '2026-07-29T12:00:00']];
+  };
+  const second = context.carryForwardBitgetEarnAssets_({});
+  assert.match(second[0].meta, /sourceUpdated=2026-07-01T12:00:00/);
+  assert.doesNotMatch(second[0].meta, /sourceUpdated=2026-07-29T12:00:00/);
+});
+
 test('Bitget funding reader uses UTA v3 funding assets', () => {
   const context = loadBitget();
   let calledEndpoint = '';
@@ -68,4 +111,3 @@ test('Bitget funding reader uses UTA v3 funding assets', () => {
   assert.equal(result.success, true);
   assert.equal(calledEndpoint, '/api/v3/account/funding-assets');
 });
-
