@@ -368,8 +368,8 @@ function buildStockExposureStrategy_(inventoryExport) {
   });
   const stockCapitalBaseTwd = toFiniteNumber_(summary.StockCapitalBaseTWD);
   const targetExposureRatio = toFiniteNumber_(summary.StockTargetExposureRatio) || 1;
-  const targetTaiwanRatio = toFiniteNumber_(summary.TaiwanTargetExposureWeight) || 0;
-  const targetNasdaqRatio = toFiniteNumber_(summary.NasdaqTargetExposureWeight) || 0;
+  const targetTaiwanRatio = toFiniteNumber_(summary.TaiwanTargetExposureWeight) || 0.50;
+  const targetNasdaqRatio = toFiniteNumber_(summary.NasdaqTargetExposureWeight) || 0.50;
   const taiwanRatio = grossExposureTwd > 0 ? taiwanExposureTwd / grossExposureTwd : 0;
   const nasdaqRatio = grossExposureTwd > 0 ? nasdaqExposureTwd / grossExposureTwd : 0;
   const debtStatus = String(summary.StockDebtStatus || "UNKNOWN").trim().toUpperCase();

@@ -4,7 +4,7 @@
  */
 const Config = {
     SYSTEM_NAME: "SAP - Sovereign Asset Protocol",
-    VERSION: "v24.19", // Preserve stale Earn rows when Bitget UTA rejects v2 Earn API
+    VERSION: "v24.20", // 50:50 Target Exposure Allocation & Valuation Gate Update
 
     // Feature Flags
     FEATURES: {
