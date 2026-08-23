@@ -19,7 +19,11 @@ const KeyMarketIndicatorsViewRepo = {
         "00713_Price",
         "00662_Price",
         "00713_200DMA_Price",
-        "00662_200DMA_Price"
+        "00662_200DMA_Price",
+        "BULL_STRATEGY_PHASE",
+        "OKX_DCA_RECOMMENDED",
+        "DYNAMIC_TARGET_50PCT_BTC",
+        "MACRO_EXIT_ROADMAP"
     ],
 
     getView_: function (ss, options) {

@@ -283,6 +283,60 @@ function getBtcRegime_(btcMM, btcDrawdown, cryptoLTV, survivalRunway) {
   });
 }
 
+function calculateBullStrategyV3_(totalBtc, btcPrice, btcMM, activeCryptoLTV, totalCryptoDebt, binanceU, extFixedBtc) {
+  const price = (btcPrice > 0) ? btcPrice : 77000;
+  const debtUsdt = (totalCryptoDebt > 0) ? (totalCryptoDebt / 32.5) : 9076;
+  const uReserve = (binanceU > 0) ? (binanceU / 32.5) : 1818;
+  const extBtc = (extFixedBtc >= 0) ? extFixedBtc : 0.502;
+  const okxPledgedBtc = Math.max(totalBtc - extBtc, 0.4455);
+
+  const baseOkxBtc = okxPledgedBtc + (uReserve / price);
+  const baseColUsd = baseOkxBtc * price;
+
+  // 50% LTV Dynamic Target
+  const deltaDebt50 = Math.max((0.50 * baseColUsd - debtUsdt) / 0.50, 0);
+  const dynamic50TargetBtc = Number((baseOkxBtc + (deltaDebt50 / price) + extBtc).toFixed(4));
+
+  let phase = "PHASE_0_SPRINT";
+  let phaseLabel = "階段0: 1.0 BTC 衝刺待發 (等待右側信號)";
+  let recommendedDca = "每 1 小時 5 USDT (120 U/天)";
+  let exitRoadmap = "$140k (賣0.10 BTC負債砍半) ➔ $160k (賣0.09 BTC負債清零，手握 1.02+ BTC 純現貨)";
+
+  if (price >= 160000 || btcMM >= 2.25) {
+    phase = "PHASE_5_EXIT";
+    phaseLabel = "階段5: 頂峰清償 (負債歸0)";
+    recommendedDca = "0 USDT (停投)";
+  } else if (price >= 140000 || btcMM >= 1.95) {
+    phase = "PHASE_5_DE_LEVERAGE";
+    phaseLabel = "階段5: 狂熱減債砍半";
+    recommendedDca = "0 USDT (停投)";
+  } else if (price >= 120000 || btcMM >= 1.70) {
+    phase = "PHASE_4_HOLD";
+    phaseLabel = "階段4: 12萬狂熱停投 (一股不賣)";
+    recommendedDca = "0 USDT (停投)";
+  } else if (price >= 100000 || btcMM >= 1.45) {
+    phase = "PHASE_3_CRUISE_2";
+    phaseLabel = "階段3: 十萬大關後微速守望 ($100k~$120k)";
+    recommendedDca = "每 24 小時 5 USDT (5 U/天)";
+  } else if (totalBtc >= (dynamic50TargetBtc - 0.02)) {
+    phase = "PHASE_3_CRUISE_1";
+    phaseLabel = "階段3: 十萬大關前主升浪巡航 ($80k~$100k)";
+    recommendedDca = "每 12 小時 5 USDT (10 U/天)";
+  } else if (totalBtc >= 1.0 || activeCryptoLTV >= 0.38) {
+    phase = "PHASE_2_CLIMB";
+    phaseLabel = "階段2: 30天整數爬坡 DCA (40% ➔ 50% LTV)";
+    recommendedDca = "每 1 小時 12 USDT (288 U/天)";
+  }
+
+  return {
+    phase: phase,
+    phaseLabel: phaseLabel,
+    recommendedDca: recommendedDca,
+    dynamic50TargetBtc: dynamic50TargetBtc,
+    exitRoadmap: exitRoadmap
+  };
+}
+
 function getBtcAllocationTargets_(btcRegime) {
   const regime = btcRegime && btcRegime.regime;
   const targets = {
@@ -1098,6 +1152,28 @@ function buildContext() {
   market.btcRegime = getBtcRegime_(market.btcMM, market.btcDrawdownFromATH, activeCryptoLTV, survivalRunway);
   const btcAllocationTargets = getBtcAllocationTargets_(market.btcRegime);
 
+  // Phase 4.5: Playbook v3.0 比特幣長牛五部曲戰略狀態與動態滿額指標
+  const btcSpotVal = portfolioSummary["BTC_Spot"] || portfolioSummary["BTC"] || 0;
+  const ibitVal = portfolioSummary["IBIT"] || 0;
+  const totalBtcExposureTwd = btcSpotVal + ibitVal;
+  const totalBtcEquivalent = (market.btcPrice > 0 && market.usdTwdRate > 0)
+    ? (totalBtcExposureTwd / (market.btcPrice * market.usdTwdRate))
+    : 0.948;
+  const foreignCashTwd = portfolioSummary["CASH_FC"] || portfolioSummary["USDT"] || 0;
+  const extFixedBtc = (market.btcPrice > 0 && market.usdTwdRate > 0)
+    ? (ibitVal / (market.btcPrice * market.usdTwdRate))
+    : 0.502;
+
+  market.bullStrategy = calculateBullStrategyV3_(
+    totalBtcEquivalent,
+    market.btcPrice,
+    market.btcMM,
+    activeCryptoLTV,
+    totalCryptoDebt,
+    foreignCashTwd,
+    extFixedBtc
+  );
+
 
   // Phase 5: 動態資產配置目標注入與 Layer 4 自動化
   const knownTickers = new Set();
@@ -1731,6 +1807,13 @@ function generatePortfolioSnapshot(context) {
   if (btcRegime) {
     s += "- BTC Regime: " + btcRegime.regime + "\n";
     s += "- 週期定位: " + btcRegime.phaseLabel + "（" + btcRegime.reason + "）\n";
+  }
+
+  if (market.bullStrategy) {
+    s += "- 🚀 長牛戰略: " + market.bullStrategy.phaseLabel + "\n";
+    s += "- 🤖 OKX DCA: " + market.bullStrategy.recommendedDca + "\n";
+    s += "- 🎯 50% 滿額目標: " + market.bullStrategy.dynamic50TargetBtc + " BTC (依真實庫存動態精算)\n";
+    s += "- 🏁 頂部退場: " + market.bullStrategy.exitRoadmap + "\n";
   }
 
   // [NEW v24.13] TW Weighted MM Display
