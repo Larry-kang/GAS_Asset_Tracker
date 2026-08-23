@@ -13,7 +13,21 @@ function runAutomationMaster(options) {
         fatal: false,
         message: ""
     };
-    console.log(`[${context}] Starting Automation ${Config.VERSION} Routine...`);
+    const startTime = Date.now();
+    const timeoutSec = opts.timeoutSeconds || (Config && Config.THRESHOLDS && Config.THRESHOLDS.EXECUTION_TIMEOUT_SECONDS) || 240;
+
+    const isTimedOut = function (stageName) {
+        const elapsedSec = (Date.now() - startTime) / 1000;
+        if (elapsedSec >= timeoutSec) {
+            console.warn(`[${context}] Timeout guard triggered before ${stageName} after ${elapsedSec.toFixed(1)}s (limit: ${timeoutSec}s). Aborting remaining pipeline stages.`);
+            result.status = "TIMEOUT_GUARD";
+            result.ok = false;
+            result.fatal = false;
+            result.message = `Timeout guard triggered before ${stageName} (${elapsedSec.toFixed(1)}s / ${timeoutSec}s)`;
+            return true;
+        }
+        return false;
+    };
 
     try {
         // 1. Discover and update FX rates before price/strategy calculations.
@@ -41,6 +55,8 @@ function runAutomationMaster(options) {
             throw new Error("FX update skipped/failed: " + e.message);
         }
 
+        if (isTimedOut("PriceUpdate")) return result;
+
         // 2. Update Market Prices (Crypto + Stock)
         try {
             if (typeof updateAllPrices === 'function') {
@@ -56,9 +72,13 @@ function runAutomationMaster(options) {
             throw new Error("Price update skipped/failed: " + e.message);
         }
 
+        if (isTimedOut("AssetSync")) return result;
+
         // [NEW] 3. Sync Asset Balances
         // Ensure balances are fresh BEFORE running strategy
         syncAllAssets_();
+
+        if (isTimedOut("StrategicMonitor")) return result;
 
         // 4. Execute Strategic Monitor (The 30-min heart)
         // This reads indicators, checks logic, and updates dashboard.

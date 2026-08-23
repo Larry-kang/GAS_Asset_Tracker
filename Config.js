@@ -18,7 +18,8 @@ const Config = {
         FX_RATE_CACHE_MINUTES: 60,
         FX_RATE_STALE_HOURS: 24,
         LOG_RETENTION_DAYS: 7,
-        SYNC_STATUS_STALE_HOURS: 24
+        SYNC_STATUS_STALE_HOURS: 24,
+        EXECUTION_TIMEOUT_SECONDS: 240 // GAS execution timeout guard threshold
     },
 
     // Sheet Names

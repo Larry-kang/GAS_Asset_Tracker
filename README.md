@@ -290,7 +290,8 @@ Guarded staging tests 預設會被擋下，除非 staging Script Properties 明�
 
 ```text
 /
-|-- Core_*.js                 # 主流程、log、策略引擎
+|-- Core_*.js                 # 主流程、log、策略入口協調器
+|-- Strategy_*.js             # 戰略模組 (牛市狀態機、股票曝險、再平衡、報表格式化)
 |-- Event_*.js                # 試算表選單與 webhook 入口
 |-- Fetch_*.js                # 市價抓取
 |-- Lib_*.js                  # 同步與 workbook contract 共用邏輯
@@ -300,7 +301,8 @@ Guarded staging tests 預設會被擋下，除非 staging Script Properties 明�
 |-- Util_*.js                 # 設定、憑證、健康檢查、通知
 |-- Config.js                 # 非秘密常數
 |-- appsscript.json           # GAS manifest
-`-- .github/workflows/        # GitHub Actions 部署 workflow
+|-- tests/                    # 本地 Node.js 單元測試套件
+`-- .github/workflows/        # GitHub Actions 部署與 CI 門禁 workflow
 ```
 
 ## Author

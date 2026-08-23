@@ -7,7 +7,6 @@ if (typeof require === 'function') {
 
   function loadStrategicEngineContext() {
     const repoRoot = path.resolve(__dirname, '..');
-    const source = fs.readFileSync(path.join(repoRoot, 'Core_StrategicEngine.js'), 'utf8');
     const sandbox = {
       JSON,
       Date,
@@ -20,7 +19,20 @@ if (typeof require === 'function') {
       Config: { BTC_MARTINGALE: { ENABLED: false, LEVELS: [] } }
     };
     const context = vm.createContext(sandbox);
-    vm.runInContext(source, context, { filename: 'Core_StrategicEngine.js' });
+    const files = [
+      'Strategy_BullStateMachine.js',
+      'Strategy_StockExposure.js',
+      'Strategy_RebalanceEngine.js',
+      'Strategy_ReportFormatter.js',
+      'Repo_FreshnessAuditor.js',
+      'Core_StrategicEngine.js'
+    ];
+    files.forEach(file => {
+      const filePath = path.join(repoRoot, file);
+      if (fs.existsSync(filePath)) {
+        vm.runInContext(fs.readFileSync(filePath, 'utf8'), context, { filename: file });
+      }
+    });
     return context;
   }
 

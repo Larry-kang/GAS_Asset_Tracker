@@ -17,6 +17,13 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Run Syntax & Unit Tests
+        run: |
+          for f in *.js; do
+            node --check "$f"
+          done
+          node --test tests/*.test.js
+
       - name: Install clasp
         run: npm install -g @google/clasp
 
