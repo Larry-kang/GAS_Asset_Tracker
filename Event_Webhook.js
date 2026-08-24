@@ -5,6 +5,18 @@
  */
 function doGet(e) {
   try {
+    // 1. 密鑰授權驗證
+    if (!isAuthorizedGetRequest_(e)) {
+      if (typeof generateLockScreenHtml === 'function' && typeof HtmlService !== 'undefined') {
+        const errorMsg = (e && e.parameter && e.parameter.key) ? "存取受限：密鑰不符，請重新輸入" : "";
+        return HtmlService.createHtmlOutput(generateLockScreenHtml(errorMsg))
+          .setTitle('🔒 SAP 戰略系統 密鑰驗證')
+          .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
+      }
+      return ContentService.createTextOutput("Access Denied: Please provide valid key parameter.");
+    }
+
+    // 2. 建立 Context 與計算警報
     const context = (typeof buildFreshContext === 'function') ? buildFreshContext() : buildContext();
     let alerts = [];
     if (typeof RULES !== 'undefined' && Array.isArray(RULES)) {
@@ -30,10 +42,31 @@ function doGet(e) {
 
   } catch (err) {
     if (typeof HtmlService !== 'undefined') {
-      return HtmlService.createHtmlOutput("<div style='font-family:sans-serif;padding:20px;color:#f87171;'><h3>載入失敗</h3><p>" + err.toString() + "</p></div>");
+      return HtmlService.createHtmlOutput("<div style='font-family:sans-serif;padding:20px;color:#dc2626;'><h3>載入失敗</h3><p>" + err.toString() + "</p></div>");
     }
     return ContentService.createTextOutput("Error: " + err.toString());
   }
+}
+
+/**
+ * 檢查 doGet 請求是否持有合法存取密鑰
+ * @private
+ */
+function isAuthorizedGetRequest_(e) {
+  const allowedKeys = [];
+  const dashboardKey = Settings.get('DASHBOARD_ACCESS_KEY');
+  if (dashboardKey) allowedKeys.push(dashboardKey);
+
+  const proxyPassword = Settings.get('PROXY_PASSWORD');
+  if (proxyPassword) allowedKeys.push(proxyPassword);
+
+  // 若系統尚未設定任何密鑰，允許直接存取
+  if (allowedKeys.length === 0) return true;
+
+  const providedKey = String((e && e.parameter && e.parameter.key) || '').trim();
+  if (!providedKey) return false;
+
+  return allowedKeys.indexOf(providedKey) >= 0;
 }
 
 /**

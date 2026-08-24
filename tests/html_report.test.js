@@ -151,4 +151,16 @@ if (typeof require === 'function') {
     assert.ok(html.length > 100);
     assert.ok(html.includes('SAP 戰略指揮中心'));
   });
+
+  test('generateLockScreenHtml renders clean login screen with error feedback', () => {
+    const context = loadHtmlReportContext();
+    assert.equal(typeof context.generateLockScreenHtml, 'function');
+
+    const htmlDefault = context.generateLockScreenHtml();
+    assert.ok(htmlDefault.includes('SAP 戰略系統 密鑰驗證'));
+    assert.ok(htmlDefault.includes('id="access-key"'));
+
+    const htmlWithError = context.generateLockScreenHtml('密鑰無效或已過期');
+    assert.ok(htmlWithError.includes('密鑰無效或已過期'));
+  });
 }

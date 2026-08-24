@@ -230,6 +230,21 @@ function setup() {
     }
   }
 
+  // Step 1.8: Configure Web App Dashboard Access Key (Optional)
+  const dashboardKeyRes = ui.prompt(
+    "設定網頁儀表板密鑰 (DASHBOARD_ACCESS_KEY)",
+    "請輸入網頁看盤密碼 (若留空則預設採用 PROXY_PASSWORD)：",
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (dashboardKeyRes.getSelectedButton() == ui.Button.OK) {
+    const dashKey = dashboardKeyRes.getResponseText().trim();
+    if (dashKey) {
+      Settings.set('DASHBOARD_ACCESS_KEY', dashKey);
+      LogService.info('Dashboard Access Key configured', 'Setup');
+    }
+  }
+
   // Step 2: Configure Emergency Reserve Threshold
   const reserveRes = ui.prompt(
     "設定緊急預備金門檻 (TREASURY_RESERVE_TWD)",

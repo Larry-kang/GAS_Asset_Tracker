@@ -80,7 +80,7 @@ if (typeof require === 'function') {
     assert.match(output.parsed().msg, /Unknown Action/);
   });
 
-  test('doGet returns HTML output or text fallback for browser access', () => {
+  test('doGet returns HTML output when no password configured', () => {
     const context = loadWebhookContext();
     context.buildContext = () => ({
       phase: "Bitcoin Standard v24.14",
@@ -103,5 +103,40 @@ if (typeof require === 'function') {
 
     const output = context.doGet({});
     assert.ok(output.content.includes('SAP Dashboard'));
+  });
+
+  test('doGet validates key parameter against DASHBOARD_ACCESS_KEY or PROXY_PASSWORD', () => {
+    const context = loadWebhookContext({ DASHBOARD_ACCESS_KEY: 'my_dashboard_secret' });
+    context.buildContext = () => ({
+      phase: "Bitcoin Standard v24.14",
+      totalGrossAssets: 3000000,
+      netEntityValue: 1700000,
+      market: { btcPrice: 77000 },
+      indicators: {},
+      pledgeGroups: [],
+      assetGroups: [],
+      rebalanceTargets: []
+    });
+    context.HtmlService = {
+      createHtmlOutput: (content) => ({
+        content: content,
+        setTitle: function() { return this; },
+        addMetaTag: function() { return this; }
+      })
+    };
+    context.generatePortfolioSnapshotHtml = () => '<html><body>SAP Dashboard Authorized</body></html>';
+    context.generateLockScreenHtml = (msg) => `<html><body>LockScreen: ${msg || ''}</body></html>`;
+
+    // 1. 未提供 key -> 應回傳 LockScreen
+    const lockedOutput = context.doGet({ parameter: {} });
+    assert.ok(lockedOutput.content.includes('LockScreen'));
+
+    // 2. 提供錯誤 key -> 應回傳 LockScreen 且帶錯誤訊息
+    const wrongKeyOutput = context.doGet({ parameter: { key: 'wrong_key' } });
+    assert.ok(wrongKeyOutput.content.includes('LockScreen'));
+
+    // 3. 提供正確 key -> 應回傳 Dashboard
+    const authOutput = context.doGet({ parameter: { key: 'my_dashboard_secret' } });
+    assert.ok(authOutput.content.includes('SAP Dashboard Authorized'));
   });
 }
