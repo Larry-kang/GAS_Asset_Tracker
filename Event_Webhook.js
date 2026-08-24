@@ -1,6 +1,42 @@
 // 檔案: WebhookHandler.gs
 
 /**
+ * [Web App Entrypoint] 支援瀏覽器直接存取儀表板
+ */
+function doGet(e) {
+  try {
+    const context = (typeof buildFreshContext === 'function') ? buildFreshContext() : buildContext();
+    let alerts = [];
+    if (typeof RULES !== 'undefined' && Array.isArray(RULES)) {
+      RULES.forEach(rule => {
+        if (rule.condition(context)) {
+          const action = rule.getAction(context);
+          if (action) alerts.push(action);
+        }
+      });
+    }
+
+    if (typeof generatePortfolioSnapshotHtml === 'function' && typeof HtmlService !== 'undefined') {
+      const htmlContent = generatePortfolioSnapshotHtml(context, alerts, { isInteractive: true });
+      return HtmlService.createHtmlOutput(htmlContent)
+        .setTitle('⚡ SAP 戰略指揮中心')
+        .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
+    }
+
+    const textSnapshot = (typeof generatePortfolioSnapshot === 'function')
+      ? generatePortfolioSnapshot(context)
+      : "SAP System Active";
+    return ContentService.createTextOutput(textSnapshot);
+
+  } catch (err) {
+    if (typeof HtmlService !== 'undefined') {
+      return HtmlService.createHtmlOutput("<div style='font-family:sans-serif;padding:20px;color:#f87171;'><h3>載入失敗</h3><p>" + err.toString() + "</p></div>");
+    }
+    return ContentService.createTextOutput("Error: " + err.toString());
+  }
+}
+
+/**
  * [Router] 統一入口，根據 action 分發任務
  */
 function doPost(e) {

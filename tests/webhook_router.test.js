@@ -79,4 +79,29 @@ if (typeof require === 'function') {
     assert.equal(output.parsed().status, 'error');
     assert.match(output.parsed().msg, /Unknown Action/);
   });
+
+  test('doGet returns HTML output or text fallback for browser access', () => {
+    const context = loadWebhookContext();
+    context.buildContext = () => ({
+      phase: "Bitcoin Standard v24.14",
+      totalGrossAssets: 3000000,
+      netEntityValue: 1700000,
+      market: { btcPrice: 77000 },
+      indicators: {},
+      pledgeGroups: [],
+      assetGroups: [],
+      rebalanceTargets: []
+    });
+    context.HtmlService = {
+      createHtmlOutput: (content) => ({
+        content: content,
+        setTitle: function() { return this; },
+        addMetaTag: function() { return this; }
+      })
+    };
+    context.generatePortfolioSnapshotHtml = () => '<html><body>SAP Dashboard</body></html>';
+
+    const output = context.doGet({});
+    assert.ok(output.content.includes('SAP Dashboard'));
+  });
 }

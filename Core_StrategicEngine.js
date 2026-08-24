@@ -44,6 +44,17 @@ function showStrategicReportUI() {
     let alerts = [];
     RULES.forEach(rule => { if (rule.condition(context)) { const action = rule.getAction(context); if (action) alerts.push(action); } });
 
+    // Preferred Modern Experience: Show Interactive Sidebar
+    if (typeof generatePortfolioSnapshotHtml === 'function' && typeof HtmlService !== 'undefined') {
+      const htmlContent = generatePortfolioSnapshotHtml(context, alerts, { isInteractive: true });
+      const htmlOutput = HtmlService.createHtmlOutput(htmlContent)
+        .setTitle('⚡ SAP 戰略指揮中心')
+        .setWidth(450);
+      ui.showSidebar(htmlOutput);
+      return;
+    }
+
+    // Fallback to modal dialog if HTML rendering is not available
     let msg = `--- [${Config.SYSTEM_NAME.split(' - ')[0]} ${Config.VERSION} 指揮中心報告] ---\n`;
     msg += "狀態: 活躍 | 模式: " + context.phase + "\n";
 

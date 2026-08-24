@@ -178,6 +178,16 @@ function generatePortfolioSnapshot(context) {
 function broadcastReport_(context, alerts = []) {
   const hasAlerts = alerts.length > 0;
   const snapshot = generatePortfolioSnapshot(context);
+  let htmlSnapshot = "";
+  if (typeof generatePortfolioSnapshotHtml === 'function') {
+    try {
+      htmlSnapshot = generatePortfolioSnapshotHtml(context, alerts, { isEmail: true });
+    } catch (e) {
+      if (typeof LogService !== 'undefined' && LogService.warn) {
+        LogService.warn("HTML snapshot generation failed, fallback to plain text: " + e.toString(), "Broadcast");
+      }
+    }
+  }
 
   // 1. Email Channel
   const emailRecipient = getAdminEmail_();
@@ -191,7 +201,16 @@ function broadcastReport_(context, alerts = []) {
       }
       body += snapshot;
 
-      MailApp.sendEmail(emailRecipient, subject, body);
+      if (htmlSnapshot) {
+        MailApp.sendEmail({
+          to: emailRecipient,
+          subject: subject,
+          body: body,
+          htmlBody: htmlSnapshot
+        });
+      } else {
+        MailApp.sendEmail(emailRecipient, subject, body);
+      }
       console.log(`[Broadcast] Email sent to ${emailRecipient}`);
     } catch (e) {
       console.error(`[Broadcast] Email failed: ${e.toString()}`);
